@@ -32,6 +32,7 @@ enumerate_many = test
 
 -- add_if
 
+add_if_true : Test
 add_if_true = test
   "add_if True appends the element to the list"
   (\_ -> Expect.equal
@@ -39,6 +40,7 @@ add_if_true = test
     (add_if True 4 [1, 2, 3])
   )
 
+add_if_false : Test
 add_if_false = test
   "add_if False leaves the list unchanged"
   (\_ -> Expect.equal
