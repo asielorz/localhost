@@ -6,6 +6,7 @@ import CalendarWidget
 import Calendar
 import Time
 import Fontawesome
+import DateUtils
 
 type alias State = 
   { calendar : CalendarWidget.State
@@ -38,7 +39,7 @@ update msg state = case msg of
 view : List (UI.Attribute msg) -> (Msg -> msg) -> State -> UI.Element msg
 view attributes message state = UI.row
   (UI.width UI.fill :: attributes)
-  [ UI.el [ UI.alignLeft ] <| UI.text <| CalendarWidget.date_to_string <| date state
+  [ UI.el [ UI.alignLeft ] <| UI.text <| DateUtils.date_to_string <| date state
   , UI.el 
   [ UI.below <| if state.is_open then CalendarWidget.view state.calendar (message << Msg_CalendarChanged) else UI.none 
   , UI.alignRight

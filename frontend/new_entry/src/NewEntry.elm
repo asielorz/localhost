@@ -60,9 +60,6 @@ is_url str = case Url.fromString str of
   Just _ -> True
   Nothing -> False
 
-any_is_empty : List String -> Bool
-any_is_empty strings = List.any String.isEmpty strings
-
 make_error : List (Bool, String) -> Maybe String
 make_error conditions =
   let errors = List.filterMap (\(cond, msg) -> if cond then Just msg else Nothing) conditions in

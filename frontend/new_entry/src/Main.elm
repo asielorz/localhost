@@ -1,7 +1,7 @@
 module Main exposing (main)
 
 import Browser exposing (Document)
-import Element as UI exposing (rgb, rgba, px)
+import Element as UI exposing (rgb, px)
 import Element.Background as Background
 import Element.Input as Input
 import Element.Font as Font
@@ -17,6 +17,7 @@ import Http
 import Dialog
 import NewEntry
 import Html exposing (form)
+import Config
 
 main : Program () Model Msg
 main = Browser.document 
@@ -208,35 +209,9 @@ row name content = UI.row [ UI.paddingEach { top = 30, bottom = 0, left = 0, rig
   , UI.el [ UI.width (px 500) ] content
   ]
 
-background_color : UI.Color
-background_color = (rgb 0.094 0.094 0.094)
-
-widget_background_color : UI.Color
-widget_background_color = (rgb 0.129 0.129 0.129)
-
-widget_border_color : UI.Color
-widget_border_color = (rgb 0.729 0.729 0.729)
-
-transparentish_widget_border_color : UI.Color
-transparentish_widget_border_color = (rgba 0.729 0.729 0.729 0.5)
-
-widget_common_border_attributes : List (UI.Attribute msg)
-widget_common_border_attributes = 
-  [ Border.color widget_border_color
-  , Border.width 1
-  , Border.rounded 3
-  ]
-
-widget_common_attributes : List (UI.Attribute msg)
-widget_common_attributes = 
-  [ Background.color widget_background_color
-  , UI.padding 10
-  ]
-  ++ widget_common_border_attributes
-
 input_box : List (UI.Attribute msg) -> String -> (String -> msg) -> UI.Element msg
 input_box attributes text onChange = Input.text
-  (widget_common_attributes ++ attributes)
+  (Config.widget_common_attributes ++ attributes)
   { onChange = onChange
   , text = text
   , placeholder = Nothing
@@ -245,7 +220,7 @@ input_box attributes text onChange = Input.text
 
 multiline_input_box : String -> (String -> Msg) -> UI.Element Msg
 multiline_input_box text onChange = Input.multiline
-  (widget_common_attributes ++
+  (Config.widget_common_attributes ++
     [ Font.size 13
     , UI.height (px 200)
     ])
@@ -279,7 +254,7 @@ type_combo_alternative entry_type =
 
 type_combo_button : EntryType -> Maybe ComboId -> UI.Element Msg
 type_combo_button entry_type currently_open_combo = Combo.view 
-  (widget_common_attributes ++ [ UI.padding 5, UI.width (px 500) ])
+  (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 500) ])
   { combo_state = entry_type
   , id = ComboId_Type
   , alternatives = [ Text { pages = 0 }, Video { length_in_seconds = 0 } ]
@@ -310,17 +285,17 @@ backup_row backup = case backup of
     in
     [ Input.button []
       { onPress = Nothing
-      , label = UI.el (widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
+      , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
       }
     , UI.el 
-      (widget_common_attributes ++ [ UI.width (px 287), Border.color error_color, Font.color error_color ])
+      (Config.widget_common_attributes ++ [ UI.width (px 287), Border.color error_color, Font.color error_color ])
       (UI.text <| Maybe.withDefault "No hay archivo elegido" path)
     ]
 
 backup_combo_button : Backup -> Maybe ComboId -> UI.Element Msg
 backup_combo_button backup currently_open_combo = UI.row [ UI.spacing 10 ]
   <| Combo.view 
-      (widget_common_attributes ++ [ UI.padding 5, UI.width (px 150) ])
+      (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 150) ])
       { combo_state = backup
       , id = ComboId_Backup
       , alternatives = [ NoBackup, Automatic, Manual Nothing ]
@@ -347,7 +322,7 @@ link_row form = UI.row [ UI.spacing 10, UI.width UI.fill ]
 
 send_button: UI.Element Msg
 send_button = Input.button 
-  (widget_common_attributes ++
+  (Config.widget_common_attributes ++
   [ Background.color (rgb 0 0.6 0)
   , Font.center
   , UI.width UI.fill
@@ -363,7 +338,7 @@ view_main_column form = UI.column
   [ row "Link"                  <| link_row form
   , row "Título"                <| input_box [] form.title Msg_TitleChanged
   , row "Autor"                 <| input_box [] form.author Msg_AuthorChanged
-  , row "Fecha de publicación"  <| DatePicker.view widget_common_attributes Msg_DatePublishedChanged form.date_published
+  , row "Fecha de publicación"  <| DatePicker.view Config.widget_common_attributes Msg_DatePublishedChanged form.date_published
   , row "Tipo"                  <| type_combo_button form.entry_type form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.currently_open_combo
   , row "Descripción"           <| multiline_input_box form.description Msg_DescriptionChanged
@@ -374,7 +349,7 @@ view_image : Maybe String -> UI.Element Msg
 view_image image_source = UI.el 
   [ UI.width (px 304)
   , UI.height (px 173) 
-  , Border.color widget_border_color
+  , Border.color Config.widget_border_color
   , Border.width 2
   ]
   <| case image_source of
@@ -382,17 +357,17 @@ view_image image_source = UI.el
         UI.el
           [ UI.width (px 300)
           , UI.height (px 169)
-          , Background.color widget_background_color
+          , Background.color Config.widget_background_color
           , UI.centerX
           , UI.centerY
           , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 5 ] 
             [ Input.button []
               { onPress = Nothing
-              , label = UI.el (widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
+              , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
               }
             , Input.button []
               { onPress = Nothing
-              , label = UI.el (widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f0ac}")
+              , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f0ac}")
               }
             ]
           ]
@@ -415,7 +390,7 @@ view_image image_source = UI.el
 
 view_category : String -> UI.Element Msg
 view_category category = UI.column 
-  [ Border.color transparentish_widget_border_color
+  [ Border.color Config.transparentish_widget_border_color
   , Border.width 1
   , Border.rounded 3
   , UI.padding 5
@@ -427,7 +402,7 @@ view_category category = UI.column
 
 view_string_list : List String -> String -> (ListWidget.Msg String -> Msg) -> UI.Element Msg
 view_string_list list name message = UI.el 
-  [ Border.color transparentish_widget_border_color
+  [ Border.color Config.transparentish_widget_border_color
   , Border.width 1
   , Border.rounded 3
   , UI.padding 5
@@ -438,7 +413,7 @@ view_string_list list name message = UI.el
     , default = ""
     , view_element = (\s -> input_box [ Font.size 15, UI.padding 7 ] s (\x -> x))
     , message = message
-    , button_attributes = widget_common_attributes ++ [ Font.size 15, UI.padding 7 ]
+    , button_attributes = Config.widget_common_attributes ++ [ Font.size 15, UI.padding 7 ]
     , width = px 250
     }
 
@@ -469,10 +444,10 @@ dialog_config close_message text =
   { closeMessage = Nothing
   , maskAttributes = []
   , containerAttributes = 
-    [ Background.color background_color
+    [ Background.color Config.background_color
     , Border.rounded 5
     , Border.width 3
-    , Border.color widget_border_color
+    , Border.color Config.widget_border_color
     , UI.centerX
     , UI.centerY
     , UI.padding 10
@@ -485,8 +460,7 @@ dialog_config close_message text =
   , header = Just UI.none
   , body = Just <| UI.column [ UI.width UI.fill ] [ UI.el [ UI.centerX ] (UI.text text) ]
   , footer = Just <| Input.button
-    ([ UI.alignRight
-    ] ++ widget_common_attributes)
+    (UI.alignRight :: Config.widget_common_attributes)
     { onPress = Just close_message
     , label = UI.text "Ok"
     }
@@ -503,7 +477,7 @@ view model =
   { title = "Nueva entrada"
   , body = 
     [ UI.layout 
-        [ Background.color background_color
+        [ Background.color Config.background_color
         , UI.centerX
         , UI.centerY
         , Font.color (rgb 1 1 1) 
