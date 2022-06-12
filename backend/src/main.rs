@@ -8,6 +8,8 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::sync::Mutex;
+use chrono;
+use chrono::Datelike;
 
 #[macro_use]
 extern crate lazy_static;
@@ -15,6 +17,24 @@ extern crate lazy_static;
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 enum Month {
     January, February, March, April, May, June, July, August, September, October, November, December
+}
+
+fn month_from_index(index : u32) -> Month
+{
+    match index {
+         1 => Month::January,
+         2 => Month::February,
+         3 => Month::March,
+         4 => Month::April,
+         5 => Month::May,
+         6 => Month::June,
+         7 => Month::July,
+         8 => Month::August,
+         9 => Month::September,
+        10 => Month::October,
+        11 => Month::November,
+         _ => Month::December,
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -56,10 +76,12 @@ struct Entry {
 
 fn today() -> Date
 {
+    let date = chrono::Local::today().naive_local();
+
     return Date{
-        day : 0,
-        month : Month::April,
-        year : 2000
+        day : date.day() as i32,
+        month : month_from_index(date.month()),
+        year : date.year()
     };
 }
 
@@ -89,28 +111,58 @@ lazy_static! {
 static FILENAME : &str = "./target/entries.json";
 
 async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    println!("Processing {} request at path {}", req.method(), req.uri().path());
+
     match (req.method(), req.uri().path()) {
+        (&Method::OPTIONS, _) => {
+            println!("Options!");
+            Ok(Response::builder()
+                .status(StatusCode::NO_CONTENT)
+                .header("Allow", "OPTIONS, POST")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Headers", "*")
+                .body(Body::from(""))
+                .unwrap()
+            )
+        }
+
         (&Method::POST, "/texts") => {
             let whole_body = hyper::body::to_bytes(req.into_body()).await?;
             match serde_json::from_slice(&whole_body) as Result<NewEntryForm, serde_json::Error> {
                 Ok(form) => {
-                    let mut entries = ENTRIES.lock().unwrap();
                     let new_entry = make_entry(&form);
+                    let mut entries = ENTRIES.lock().unwrap();
                     entries.push(new_entry);
 
                     if let Ok(mut file) = File::create(FILENAME) {
                         if let Ok(json) = serde_json::to_vec_pretty(&*entries) {
                             _ = file.write_all(&json);
+                            println!("Request succesful!");
                         }
                     }
 
-                    Ok(Response::new(Body::from(format!("{:?}", form))))
+                    Ok(
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header("Allow", "OPTIONS, POST")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Access-Control-Allow-Headers", "*")
+                            .body(Body::from(r#"{"success":"true"}"#))
+                            .unwrap()
+                    )
                 }
-                Err(err) => Ok(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from(format!("Invalid entry: {}", err)))
-                    .unwrap()
-                )
+                Err(err) => {
+                    println!("Rejecting bad request: {}", err);
+
+                    Ok(Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("Allow", "OPTIONS, POST")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
+                        .body(Body::from(format!("Invalid entry: {}", err)))
+                        .unwrap()
+                    )
+                }
             }
         }
 

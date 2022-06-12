@@ -13,6 +13,10 @@ import Fontawesome exposing (fontawesome)
 import Element.Events as Events
 import DatePicker
 import Time
+import Http
+import Dialog
+import NewEntry
+import Html exposing (form)
 
 main : Program () Model Msg
 main = Browser.document 
@@ -30,7 +34,9 @@ type Backup = NoBackup | Automatic | Manual (Maybe String)
 
 type ComboId = ComboId_Type | ComboId_Backup
 
-type alias NewEntryForm = 
+type AppState = State_Editing | State_SendSucceeded | State_SendFailed String
+
+type alias Model = 
   { link : String
   , title : String
   , backup : Backup
@@ -41,13 +47,12 @@ type alias NewEntryForm =
   , themes : List String
   , works_mentioned : List String
   , tags : List String
-  , date_publised : DatePicker.State
+  , date_published : DatePicker.State
   , entry_type : EntryType
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
+  , app_state : AppState
   }
-
-type alias Model = NewEntryForm
 
 default_model : Model
 default_model = 
@@ -61,10 +66,11 @@ default_model =
   , themes = []
   , works_mentioned = []
   , tags = []
-  , date_publised = DatePicker.make { day = 11, month = Time.May, year = 2022 }
+  , date_published = DatePicker.make { day = 11, month = Time.May, year = 2022 }
   , entry_type = Text { pages = 0 }
   , exceptional = False
   , currently_open_combo = Nothing
+  , app_state = State_Editing
   }
 
 initial_commands : Cmd Msg
@@ -84,6 +90,11 @@ type Msg
   | Msg_Themes (ListWidget.Msg String)
   | Msg_Tags (ListWidget.Msg String)
   | Msg_DatePublishedChanged DatePicker.Msg
+  | Msg_Send
+  | Msg_ResponseToSendArrived (Result Http.Error String)
+  | Msg_CloseResponseDialog (Bool)
+
+-- update
 
 set_entry_type : EntryType -> Model -> Model
 set_entry_type entry_type model = { model | entry_type = entry_type }
@@ -133,13 +144,72 @@ update msg model = case msg of
     ({ model | tags = (ListWidget.update list_msg model.tags) }, Cmd.none)
 
   Msg_DatePublishedChanged date_picker_msg ->
-    ({ model | date_publised = DatePicker.update date_picker_msg model.date_publised }, Cmd.none)
+    ({ model | date_published = DatePicker.update date_picker_msg model.date_published }, Cmd.none)
+
+  Msg_Send -> send_button_clicked model
+
+  Msg_ResponseToSendArrived response -> case response of
+    Ok _ -> ({ model | app_state = State_SendSucceeded }, Cmd.none)
+    Err err -> ({ model | app_state = State_SendFailed (http_error_to_string err) }, Cmd.none)
+
+  Msg_CloseResponseDialog reset ->
+    if reset
+      then (default_model, Cmd.none)
+      else ({ model | app_state = State_Editing }, Cmd.none)
+
+http_error_to_string : Http.Error -> String
+http_error_to_string error = case error of
+  Http.BadUrl str -> "Bad URL: " ++ str
+  Http.Timeout -> "Timeout"
+  Http.NetworkError -> "Network error"
+  Http.BadStatus status -> "Bad status code (" ++ String.fromInt status ++ ")"
+  Http.BadBody str -> "Bad body: " ++ str
+
+make_new_entry_form : Model -> Result String NewEntry.Form 
+make_new_entry_form model =
+  let 
+    form = 
+      { link = model.link
+      , title = model.title
+      , description = model.description
+      , author = model.author
+      , category = model.category
+      , themes = model.themes
+      , works_mentioned = model.works_mentioned
+      , tags = model.tags
+      , date_published = DatePicker.date model.date_published
+      , exceptional = model.exceptional
+      }
+  in case NewEntry.validate form of
+    Nothing -> Ok form
+    Just error -> Err error
+
+send_button_clicked : Model -> (Model, Cmd Msg)
+send_button_clicked model = case make_new_entry_form model of
+  Ok form -> 
+    (model
+    , Http.post 
+      { url = "http://localhost:8080/texts"
+      , body = Http.jsonBody <| NewEntry.to_json form
+      , expect = Http.expectString Msg_ResponseToSendArrived
+      }
+    )
+
+  Err err -> 
+    ({model | app_state = State_SendFailed <| "El formulario no es válido:\n" ++ err}
+    , Cmd.none
+    )
+
+-- view
 
 row : String -> UI.Element Msg -> UI.Element Msg
 row name content = UI.row [ UI.paddingEach { top = 30, bottom = 0, left = 0, right = 0 } ] 
   [ UI.el [ Font.color (rgb 1 1 1), UI.alignLeft, UI.alignTop, UI.width (px 300), UI.paddingEach { top = 15, bottom = 0, left = 0, right = 0 } ] (UI.text name)
   , UI.el [ UI.width (px 500) ] content
   ]
+
+background_color : UI.Color
+background_color = (rgb 0.094 0.094 0.094)
 
 widget_background_color : UI.Color
 widget_background_color = (rgb 0.129 0.129 0.129)
@@ -269,9 +339,9 @@ exceptional_toggle_button is_exceptional = UI.el
   ]
   <| UI.text "\u{f005}" --fa-star
 
-link_row : NewEntryForm -> UI.Element Msg
-link_row form = UI.row [ UI.spacing 10 ] 
-  [ UI.el [ UI.width (px 460) ] <| input_box [] form.link Msg_LinkChanged
+link_row : Model -> UI.Element Msg
+link_row form = UI.row [ UI.spacing 10, UI.width UI.fill ] 
+  [ UI.el [ UI.width UI.fill ] <| input_box [] form.link Msg_LinkChanged
   , exceptional_toggle_button form.exceptional 
   ]
 
@@ -280,20 +350,20 @@ send_button = Input.button
   (widget_common_attributes ++
   [ Background.color (rgb 0 0.6 0)
   , Font.center
-  , UI.width (px 500)
+  , UI.width UI.fill
   ])
-  { onPress = Nothing
+  { onPress = Just Msg_Send
   , label = UI.text "Enviar"
   }
 
-view_main_column : NewEntryForm -> UI.Element Msg
+view_main_column : Model -> UI.Element Msg
 view_main_column form = UI.column 
   [ UI.alignTop
   ]
   [ row "Link"                  <| link_row form
   , row "Título"                <| input_box [] form.title Msg_TitleChanged
   , row "Autor"                 <| input_box [] form.author Msg_AuthorChanged
-  , row "Fecha de publicación"  <| DatePicker.view widget_common_attributes Msg_DatePublishedChanged form.date_publised
+  , row "Fecha de publicación"  <| DatePicker.view widget_common_attributes Msg_DatePublishedChanged form.date_published
   , row "Tipo"                  <| type_combo_button form.entry_type form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.currently_open_combo
   , row "Descripción"           <| multiline_input_box form.description Msg_DescriptionChanged
@@ -372,7 +442,7 @@ view_string_list list name message = UI.el
     , width = px 250
     }
 
-view_side_column : NewEntryForm -> UI.Element Msg
+view_side_column : Model -> UI.Element Msg
 view_side_column form = UI.column 
   [ UI.alignTop
   , UI.paddingEach { top = 35, bottom = 0, left = 0, right = 0 }
@@ -385,7 +455,7 @@ view_side_column form = UI.column
   , view_string_list form.tags "Etiquetas" Msg_Tags
   ]
 
-view_form : NewEntryForm -> UI.Element Msg
+view_form : Model -> UI.Element Msg
 view_form form = UI.row 
   [ UI.centerX
   , UI.spacing 40
@@ -394,12 +464,51 @@ view_form form = UI.row
   , view_side_column form
   ]
 
+dialog_config : Msg -> String -> Dialog.Config Msg
+dialog_config close_message text = 
+  { closeMessage = Nothing
+  , maskAttributes = []
+  , containerAttributes = 
+    [ Background.color background_color
+    , Border.rounded 5
+    , Border.width 3
+    , Border.color widget_border_color
+    , UI.centerX
+    , UI.centerY
+    , UI.padding 10
+    , UI.spacing 20
+    , UI.width (px 600)
+    ]
+  , headerAttributes = []
+  , bodyAttributes = []
+  , footerAttributes = []
+  , header = Just UI.none
+  , body = Just <| UI.column [ UI.width UI.fill ] [ UI.el [ UI.centerX ] (UI.text text) ]
+  , footer = Just <| Input.button
+    ([ UI.alignRight
+    ] ++ widget_common_attributes)
+    { onPress = Just close_message
+    , label = UI.text "Ok"
+    }
+  }
+
+view_dialog : Model -> Maybe (Dialog.Config Msg)
+view_dialog form = case form.app_state of
+  State_Editing -> Nothing
+  State_SendSucceeded -> Just <| dialog_config (Msg_CloseResponseDialog True) "Nueva entrada añadida correctamente."
+  State_SendFailed error_message -> Just <| dialog_config (Msg_CloseResponseDialog False) ("Error al añadir nueva entrada: " ++ error_message)
+
 view : Model -> Document Msg
 view model =
   { title = "Nueva entrada"
   , body = 
     [ UI.layout 
-        [ Background.color (rgb 0.094 0.094 0.094), UI.centerX, UI.centerY, Font.color (rgb 1 1 1) ] 
+        [ Background.color background_color
+        , UI.centerX
+        , UI.centerY
+        , Font.color (rgb 1 1 1) 
+        , UI.inFront <| Dialog.view <| view_dialog model
+        ] 
         (view_form model) 
     ]
   }
