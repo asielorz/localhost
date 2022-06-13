@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, Method, StatusCode};
 use serde_json;
@@ -103,68 +102,110 @@ fn make_entry(form : &NewEntryForm) -> Entry
     };
 }
 
-lazy_static! {
+lazy_static! 
+{
     static ref ENTRIES: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
 }
 
 // TO DO: Parameterize
 static FILENAME : &str = "./target/entries.json";
 
-async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    println!("Processing {} request at path {}", req.method(), req.uri().path());
+struct Requests{}
+impl Requests
+{
+    fn options() -> Result<Response<Body>, hyper::Error>
+    {
+        println!("Options!");
+        return Ok(Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("Allow", "OPTIONS, POST")
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .body(Body::from(""))
+            .unwrap()
+        );
+    }
 
-    match (req.method(), req.uri().path()) {
-        (&Method::OPTIONS, _) => {
-            println!("Options!");
-            Ok(Response::builder()
-                .status(StatusCode::NO_CONTENT)
+    fn get_texts() -> Result<Response<Body>, hyper::Error>
+    {
+        let entries = ENTRIES.lock().unwrap();
+
+        if let Ok(json) = serde_json::to_string(&*entries)
+        {
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Allow", "OPTIONS, POST")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Headers", "*")
+                .body(Body::from(json))
+                .unwrap()
+            );
+        }
+        else
+        {
+            return Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Allow", "OPTIONS, POST")
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Headers", "*")
                 .body(Body::from(""))
                 .unwrap()
-            )
+            );
         }
+    }
 
-        (&Method::POST, "/texts") => {
-            let whole_body = hyper::body::to_bytes(req.into_body()).await?;
-            match serde_json::from_slice(&whole_body) as Result<NewEntryForm, serde_json::Error> {
-                Ok(form) => {
-                    let new_entry = make_entry(&form);
-                    let mut entries = ENTRIES.lock().unwrap();
-                    entries.push(new_entry);
-
-                    if let Ok(mut file) = File::create(FILENAME) {
-                        if let Ok(json) = serde_json::to_vec_pretty(&*entries) {
-                            _ = file.write_all(&json);
-                            println!("Request succesful!");
-                        }
+    async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+        match serde_json::from_slice(&whole_body) as Result<NewEntryForm, serde_json::Error> {
+            Ok(form) => {
+                let new_entry = make_entry(&form);
+                let mut entries = ENTRIES.lock().unwrap();
+                entries.push(new_entry);
+                
+                if let Ok(mut file) = File::create(FILENAME) {
+                    if let Ok(json) = serde_json::to_vec_pretty(&*entries) {
+                        _ = file.write_all(&json);
+                        println!("Request succesful!");
                     }
-
-                    Ok(
-                        Response::builder()
-                            .status(StatusCode::OK)
-                            .header("Allow", "OPTIONS, POST")
-                            .header("Access-Control-Allow-Origin", "*")
-                            .header("Access-Control-Allow-Headers", "*")
-                            .body(Body::from(r#"{"success":"true"}"#))
-                            .unwrap()
-                    )
                 }
-                Err(err) => {
-                    println!("Rejecting bad request: {}", err);
 
-                    Ok(Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
+                Ok(
+                    Response::builder()
+                        .status(StatusCode::OK)
                         .header("Allow", "OPTIONS, POST")
                         .header("Access-Control-Allow-Origin", "*")
                         .header("Access-Control-Allow-Headers", "*")
-                        .body(Body::from(format!("Invalid entry: {}", err)))
+                        .body(Body::from(r#"{"success":"true"}"#))
                         .unwrap()
-                    )
-                }
+                )
+            }
+            Err(err) => {
+                println!("Rejecting bad request: {}", err);
+                
+                Ok(Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .header("Allow", "OPTIONS, POST")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Headers", "*")
+                    .body(Body::from(format!("Invalid entry: {}", err)))
+                    .unwrap()
+                )
             }
         }
+    }
+}
+
+async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::Error> 
+{
+    println!("Processing {} request at path {}", req.method(), req.uri().path());
+
+    match (req.method(), req.uri().path()) {
+        (&Method::OPTIONS, _) => Requests::options(),
+
+        (&Method::GET, "/texts") => Requests::get_texts(),
+        
+        (&Method::POST, "/texts") => Requests::post_texts(req).await,
 
         // Return the 404 Not Found for other routes.
         _ => {

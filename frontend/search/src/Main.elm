@@ -8,6 +8,9 @@ import Config
 import Entry exposing (Entry)
 import Time
 import Calendar
+import Http
+import Json.Decode
+import DateUtils
 
 main : Program () Model Msg
 main = Browser.document 
@@ -19,14 +22,9 @@ main = Browser.document
 
 type alias Model = List Entry
 
-type Msg = Msg_Noop
+type Msg = Msg_SearchResultArrived (Result (Http.Error) (List Entry))
 
 -- Test data. Delete.
-default_date : Calendar.Date
-default_date = Calendar.fromPosix <| Time.millisToPosix 0
-
-make_date : { day : Int, month : Time.Month, year : Int } -> Calendar.Date
-make_date parts = Maybe.withDefault default_date <| Calendar.fromRawParts { month = parts.month, year = parts.year, day = parts.day }
 
 wikipedia_test_entry : Entry
 wikipedia_test_entry = 
@@ -39,8 +37,8 @@ wikipedia_test_entry =
   , themes = [ "Tema 1", "Tema 2" ]
   , works_mentioned = [ "Obra 1", "Obra 2" ]
   , tags = [ "Etiqueta 1", "Etiqueta 2" ]
-  , date_published = make_date { day = 15, month = Time.Jan, year = 2001 }
-  , date_saved = make_date { day = 12, month = Time.Jun, year = 2022 }
+  , date_published = DateUtils.make_literal_date { day = 15, month = Time.Jan, year = 2001 }
+  , date_saved = DateUtils.make_literal_date { day = 12, month = Time.Jun, year = 2022 }
   , exceptional = False
   }
 -- End test data.
@@ -49,10 +47,13 @@ default_model : Model
 default_model = [ wikipedia_test_entry ]
 
 initial_commands : Cmd Msg
-initial_commands = Cmd.none
+initial_commands = Http.get { url = "http://localhost:8080/texts", expect = Http.expectJson Msg_SearchResultArrived (Json.Decode.list Entry.from_json) }
 
 update : Msg -> Model -> (Model, Cmd Msg)
-update msg model = (model, Cmd.none)
+update msg model = case msg of
+  Msg_SearchResultArrived new_results -> case new_results of
+    Ok (actual_results) -> (actual_results, Cmd.none)
+    Err _ -> (model, Cmd.none)
 
 view : Model -> Document Msg
 view model =
@@ -64,6 +65,6 @@ view model =
         , UI.centerY
         , Font.color (rgb 1 1 1) 
         ] 
-        <| UI.column [ UI.centerX, UI.centerY ] (List.map Entry.view model)
+        <| UI.column [ UI.centerX, UI.centerY, UI.spacing 20 ] (List.map Entry.view model)
     ]
   }

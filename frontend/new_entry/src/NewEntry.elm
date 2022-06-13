@@ -4,6 +4,7 @@ import Calendar
 import Json.Encode as Json
 import Time
 import Url
+import DateUtils
 
 type alias Form =
   { link : String
@@ -18,29 +19,6 @@ type alias Form =
   , exceptional : Bool
   }
 
-month_to_json_string : Time.Month -> String
-month_to_json_string month = case month of 
-  Time.Jan -> "January"
-  Time.Feb -> "February"
-  Time.Mar -> "March"
-  Time.Apr -> "April"
-  Time.May -> "May"
-  Time.Jun -> "June"
-  Time.Jul -> "July"
-  Time.Aug -> "August"
-  Time.Sep -> "September"
-  Time.Oct -> "October"
-  Time.Nov -> "November"
-  Time.Dec -> "December"
-
--- export date to json in the format expected by the backend
-date_to_json : Calendar.Date -> Json.Value
-date_to_json date = Json.object
-  [ ("day", Json.int <| Calendar.getDay date)
-  , ("month", Json.string <| month_to_json_string <| Calendar.getMonth date)
-  , ("year", Json.int <| Calendar.getYear date)
-  ]
-
 to_json : Form -> Json.Value
 to_json form = Json.object
   [ ("link", Json.string form.link)
@@ -51,7 +29,7 @@ to_json form = Json.object
   , ("themes", Json.list Json.string form.themes)
   , ("works_mentioned", Json.list Json.string form.works_mentioned)
   , ("tags", Json.list Json.string form.tags)
-  , ("date_published", date_to_json form.date_published)
+  , ("date_published", DateUtils.date_to_json form.date_published)
   , ("exceptional", Json.bool form.exceptional)
   ]
 

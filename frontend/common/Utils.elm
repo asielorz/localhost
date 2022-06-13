@@ -1,4 +1,7 @@
-module Utils exposing (const, add_if, enumerate, remove_at, replace_at, toupper_first, missing_to_be_a_multiple_of, chunk)
+module Utils exposing (const, add_if, enumerate, remove_at, replace_at, toupper_first, missing_to_be_a_multiple_of, chunk, fail_if_nothing, grid)
+
+import Json.Decode
+import Element as UI
 
 const : a -> b -> a
 const x _ = x
@@ -47,3 +50,24 @@ chunk size list =
     if List.length list <= size
       then [list]
       else (List.take size list) :: chunk size (List.drop size list)
+
+-- Given a decoder that returns a maybe, makes it fail when the maybe is nothing.
+fail_if_nothing : String -> Json.Decode.Decoder (Maybe a) -> Json.Decode.Decoder a
+fail_if_nothing error_message decoder = 
+  Json.Decode.andThen 
+    (\maybe_x -> case maybe_x of 
+      Just x -> Json.Decode.succeed x
+      Nothing -> Json.Decode.fail error_message
+    )
+    decoder
+
+grid : 
+  { column_attributes : List (UI.Attribute msg) 
+  , row_attributes : List (UI.Attribute msg)
+  , view_element : (a -> UI.Element msg)
+  , grid_elements : List (List a)
+  }
+  -> UI.Element msg
+grid args = UI.column 
+  args.column_attributes 
+  <| List.map (\row_elements -> UI.row args.row_attributes <| List.map args.view_element row_elements) args.grid_elements 
