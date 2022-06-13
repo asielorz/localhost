@@ -7,6 +7,7 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::sync::Mutex;
+use std::collections::HashSet;
 use chrono;
 use chrono::Datelike;
 
@@ -102,9 +103,81 @@ fn make_entry(form : &NewEntryForm) -> Entry
     };
 }
 
+struct Cache
+{
+    categories : HashSet<String>,
+    authors : HashSet<String>,
+    themes : HashSet<String>,
+    works : HashSet<String>,
+    tags : HashSet<String>,
+}
+
+impl Cache
+{
+    fn new() -> Cache
+    {
+        return Cache{ categories : HashSet::new(), authors : HashSet::new(), themes : HashSet::new(), works : HashSet::new(), tags : HashSet::new() }; 
+    }
+}
+
+struct State
+{
+    entries: Vec<Entry>,
+    cache : Cache
+}
+
+impl State
+{
+    fn new() -> State
+    {
+        return State{ entries : Vec::new(), cache : Cache::new() };
+    }
+
+    fn initialize(&mut self, entries : Vec<Entry>)
+    {
+        self.cache = cache_all_search_values(&entries);
+        self.entries = entries;
+    }
+
+    fn add_entry(&mut self, entry : Entry) -> ()
+    {
+        cache_search_values_for(&mut self.cache, &entry);
+        self.entries.push(entry);
+    }
+}
+
+fn cache_search_values_for(cache : &mut Cache, entry : &Entry) -> ()
+{
+    cache.categories.insert(entry.category.clone());
+    cache.authors.insert(entry.author.clone());
+
+    for theme in &entry.themes {
+        cache.themes.insert(theme.clone());
+    }
+
+    for work in &entry.works_mentioned {
+        cache.works.insert(work.clone());
+    }
+
+    for tag in &entry.tags {
+        cache.tags.insert(tag.clone());
+    }
+}
+
+fn cache_all_search_values(entries : &[Entry]) -> Cache
+{
+    let mut cache = Cache::new();
+
+    for entry in entries {
+        cache_search_values_for(&mut cache, &entry);
+    }
+
+    return cache;
+}
+
 lazy_static! 
 {
-    static ref ENTRIES: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+    static ref STATE: Mutex<State> = Mutex::new(State::new());
 }
 
 // TO DO: Parameterize
@@ -128,9 +201,9 @@ impl Requests
 
     fn get_texts() -> Result<Response<Body>, hyper::Error>
     {
-        let entries = ENTRIES.lock().unwrap();
+        let state = STATE.lock().unwrap();
 
-        if let Ok(json) = serde_json::to_string(&*entries)
+        if let Ok(json) = serde_json::to_string(&*state.entries)
         {
             return Ok(Response::builder()
                 .status(StatusCode::OK)
@@ -154,17 +227,68 @@ impl Requests
         }
     }
 
+    fn strings_as_http_response(strings : &HashSet<String>) -> Result<Response<Body>, hyper::Error>
+    {
+        if let Ok(json) = serde_json::to_string(strings)
+        {
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header("Allow", "OPTIONS, POST")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Headers", "*")
+                .body(Body::from(json))
+                .unwrap()
+            );
+        }
+        else
+        {
+            return Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Allow", "OPTIONS, POST")
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Headers", "*")
+                .body(Body::from(""))
+                .unwrap()
+            );
+        }
+    }
+
+    fn get_categories() -> Result<Response<Body>, hyper::Error>
+    {
+        return Requests::strings_as_http_response(&STATE.lock().unwrap().cache.categories);
+    }
+
+    fn get_authors() -> Result<Response<Body>, hyper::Error>
+    {
+        return Requests::strings_as_http_response(&STATE.lock().unwrap().cache.authors);
+    }
+
+    fn get_themes() -> Result<Response<Body>, hyper::Error>
+    {
+        return Requests::strings_as_http_response(&STATE.lock().unwrap().cache.themes);
+    }
+
+    fn get_works() -> Result<Response<Body>, hyper::Error>
+    {
+        return Requests::strings_as_http_response(&STATE.lock().unwrap().cache.works);
+    }
+
+    fn get_tags() -> Result<Response<Body>, hyper::Error>
+    {
+        return Requests::strings_as_http_response(&STATE.lock().unwrap().cache.tags);
+    }
+
     async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
     {
         let whole_body = hyper::body::to_bytes(req.into_body()).await?;
         match serde_json::from_slice(&whole_body) as Result<NewEntryForm, serde_json::Error> {
             Ok(form) => {
                 let new_entry = make_entry(&form);
-                let mut entries = ENTRIES.lock().unwrap();
-                entries.push(new_entry);
-                
+                let mut state = STATE.lock().unwrap();
+                state.add_entry(new_entry);
+
                 if let Ok(mut file) = File::create(FILENAME) {
-                    if let Ok(json) = serde_json::to_vec_pretty(&*entries) {
+                    if let Ok(json) = serde_json::to_vec_pretty(&*state.entries) {
                         _ = file.write_all(&json);
                         println!("Request succesful!");
                     }
@@ -207,6 +331,12 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         
         (&Method::POST, "/texts") => Requests::post_texts(req).await,
 
+        (&Method::GET, "/categories") => Requests::get_categories(),
+        (&Method::GET, "/authors") => Requests::get_authors(),
+        (&Method::GET, "/themes") => Requests::get_themes(),
+        (&Method::GET, "/works") => Requests::get_works(),
+        (&Method::GET, "/tags") => Requests::get_tags(),
+
         // Return the 404 Not Found for other routes.
         _ => {
             Ok(Response::builder()
@@ -224,7 +354,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match fs::read_to_string(FILENAME) {
         Ok(content) =>{
             match serde_json::from_slice(content.as_bytes()) as Result<Vec<Entry>, _> {
-                Ok(read_entries) => *ENTRIES.lock().unwrap() = read_entries,
+                Ok(read_entries) => STATE.lock().unwrap().initialize(read_entries),
                 Err(err) => println!("Error when parsing entries from file {}: {}", FILENAME, err)
             }
         }

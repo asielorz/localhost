@@ -53,6 +53,13 @@ type alias Model =
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
   , app_state : AppState
+
+  -- Cached. Received from the server. Used for autocompletion.
+  , all_categories : List String
+  , all_authors : List String
+  , all_themes : List String
+  , all_works : List String
+  , all_tags : List String
   }
 
 default_model : Model
@@ -72,6 +79,12 @@ default_model =
   , exceptional = False
   , currently_open_combo = Nothing
   , app_state = State_Editing
+
+  , all_categories = []
+  , all_authors = []
+  , all_themes = []
+  , all_works = []
+  , all_tags = []
   }
 
 initial_commands : Cmd Msg
@@ -94,6 +107,12 @@ type Msg
   | Msg_Send
   | Msg_ResponseToSendArrived (Result Http.Error String)
   | Msg_CloseResponseDialog (Bool)
+
+  | Msg_ReceivedCategories (Result Http.Error (List String))
+  | Msg_ReceivedAuthors (Result Http.Error (List String))
+  | Msg_ReceivedThemes (Result Http.Error (List String))
+  | Msg_ReceivedWorks (Result Http.Error (List String))
+  | Msg_ReceivedTags (Result Http.Error (List String))
 
 -- update
 
@@ -157,6 +176,31 @@ update msg model = case msg of
     if reset
       then (default_model, Cmd.none)
       else ({ model | app_state = State_Editing }, Cmd.none)
+
+  Msg_ReceivedCategories result ->
+    case result of
+      Ok received_categories -> ({ model | all_categories = List.sort received_categories }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedAuthors result ->
+    case result of
+      Ok received_authors -> ({ model | all_authors = List.sort received_authors }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedThemes result ->
+    case result of
+      Ok received_themes -> ({ model | all_themes = List.sort received_themes }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedWorks result ->
+    case result of
+      Ok received_works -> ({ model | all_works = List.sort received_works }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedTags result ->
+    case result of
+      Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
+      Err _ -> (model, Cmd.none)
 
 http_error_to_string : Http.Error -> String
 http_error_to_string error = case error of
