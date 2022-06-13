@@ -2,7 +2,6 @@ module NewEntry exposing (Form, to_json, validate)
 
 import Calendar
 import Json.Encode as Json
-import Time
 import Url
 import DateUtils
 
