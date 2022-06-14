@@ -1,4 +1,4 @@
-module ListWidget exposing (Msg(..), update, view)
+module ListWidget exposing (Msg(..), IntermediateMsg(..), update, view)
 
 import Element as UI
 import Element.Input as Input
@@ -10,6 +10,10 @@ type Msg a
   = Msg_Add a
   | Msg_Remove Int
   | Msg_Edit Int a
+
+type IntermediateMsg a msg
+  = EditElement a
+  | PassThrough msg
 
 update : Msg a -> List a -> List a
 update msg state = case msg of
@@ -33,7 +37,7 @@ type alias Args a msg =
   { state : List a
   , name : String
   , default : a
-  , view_element : (a -> UI.Element a)
+  , view_element : Int -> a -> UI.Element (IntermediateMsg a msg)
   , message : (Msg a -> msg)
   , button_attributes : List (UI.Attribute msg)
   , width : UI.Length
@@ -45,8 +49,12 @@ header_row args = UI.row [ UI.spacing 10 ]
   , add_button args.button_attributes args.default args.message 
   ]
 
-view_element : (a -> UI.Element a) -> (Msg a -> msg) -> a -> Int -> UI.Element msg
-view_element view_fn message element index = UI.map (\new_value -> message <| Msg_Edit index new_value) (view_fn element)
+view_element : (Int -> a -> UI.Element (IntermediateMsg a msg)) -> (Msg a -> msg) -> a -> Int -> UI.Element msg
+view_element view_fn message element index = UI.map 
+  (\intermediate_msg -> case intermediate_msg of
+    EditElement new_value -> message <| Msg_Edit index new_value
+    PassThrough msg -> msg
+  ) (view_fn index element)
 
 element_row : Args a msg -> (Int, a) -> UI.Element msg
 element_row args (index, element) = UI.row [ UI.spacing 10 ] 

@@ -16,6 +16,9 @@ widget_border_color = (rgb 0.729 0.729 0.729)
 transparentish_widget_border_color : UI.Color
 transparentish_widget_border_color = (rgba 0.729 0.729 0.729 0.5)
 
+widget_hovered_background_color : UI.Color
+widget_hovered_background_color = (UI.rgb 0.219 0.219 0.219)
+
 widget_common_border_attributes : List (UI.Attribute msg)
 widget_common_border_attributes = 
   [ Border.color widget_border_color

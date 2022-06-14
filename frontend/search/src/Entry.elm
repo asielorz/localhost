@@ -94,7 +94,12 @@ view_entry_data entry = UI.column [ UI.spacing 5, UI.alignTop, UI.width (px 800)
       (List.map (view_extra_info ExtraInfo_Work) entry.works_mentioned) ++ 
       (List.map (view_extra_info ExtraInfo_Tag) entry.tags)
     }
-  , UI.paragraph [ Font.size 15, Font.color (rgb 0.7 0.7 0.7) ] [ UI.text entry.description ]
+  , UI.paragraph
+    [ Font.size 15
+    , Font.color (rgb 0.7 0.7 0.7)
+    , Font.justify
+    ]
+    [ UI.text entry.description ]
   ]
 
 view : Entry -> UI.Element msg

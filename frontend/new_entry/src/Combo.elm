@@ -7,6 +7,7 @@ import Element.Background as Background
 import Element.Font as Font
 import Fontawesome exposing (fontawesome)
 import Utils exposing (..)
+import Config
 
 type Msg a
   = Msg_Open
@@ -19,13 +20,15 @@ update args msg = case msg of
   Msg_Close -> args.set_open_combo Nothing args.model
   Msg_Select new_value -> args.set_value new_value args.model |> args.set_open_combo Nothing
 
-widget_hovered_background_color : UI.Color
-widget_hovered_background_color = (UI.rgb 0.219 0.219 0.219)
-
 view_combo_content : List (UI.Attribute msg) -> { alternatives : List a, view_alternative : (a -> UI.Element msg), message : (Msg a -> msg) } -> UI.Element msg
 view_combo_content attributes args = UI.column 
   (attributes ++ [ UI.spacing 5 ])
-  (args.alternatives |> List.map (\alternative -> UI.el [ Events.onClick <| args.message <| Msg_Select alternative, UI.mouseOver [ Background.color widget_hovered_background_color ] ] <| args.view_alternative alternative))
+  (args.alternatives |> List.map (\alternative -> UI.el 
+    [ Events.onClick <| args.message <| Msg_Select alternative
+    , UI.mouseOver [ Background.color Config.widget_hovered_background_color ]
+    , UI.width UI.fill
+    ] 
+    <| args.view_alternative alternative))
 
 is_open : id -> Maybe id -> Bool
 is_open combo_id currently_open_id = case currently_open_id of

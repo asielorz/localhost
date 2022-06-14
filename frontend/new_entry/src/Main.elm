@@ -7,10 +7,10 @@ import Element.Input as Input
 import Element.Font as Font
 import Element.Border as Border
 import Element.Input exposing (labelHidden)
+import Element.Events as Events
 import Combo
 import ListWidget
 import Fontawesome exposing (fontawesome)
-import Element.Events as Events
 import DatePicker
 import Time
 import Http
@@ -18,6 +18,10 @@ import Dialog
 import NewEntry
 import Html exposing (form)
 import Config
+import Http
+import Json.Decode
+import Utils
+import Html.Events
 
 main : Program () Model Msg
 main = Browser.document 
@@ -33,7 +37,14 @@ type EntryType
 
 type Backup = NoBackup | Automatic | Manual (Maybe String)
 
-type ComboId = ComboId_Type | ComboId_Backup
+type ComboId 
+  = ComboId_Type 
+  | ComboId_Backup 
+  | ComboId_Author
+  | ComboId_Category
+  | ComboId_WorkMentioned Int
+  | ComboId_Theme Int
+  | ComboId_Tag Int
 
 type AppState = State_Editing | State_SendSucceeded | State_SendFailed String
 
@@ -88,7 +99,13 @@ default_model =
   }
 
 initial_commands : Cmd Msg
-initial_commands = Cmd.none
+initial_commands = Cmd.batch
+  [ Http.get { url = "http://localhost:8080/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+  ]
 
 type Msg 
   = Msg_Noop
@@ -106,7 +123,8 @@ type Msg
   | Msg_DatePublishedChanged DatePicker.Msg
   | Msg_Send
   | Msg_ResponseToSendArrived (Result Http.Error String)
-  | Msg_CloseResponseDialog (Bool)
+  | Msg_CloseResponseDialog Bool
+  | Msg_OpenComboChanged (Maybe ComboId)
 
   | Msg_ReceivedCategories (Result Http.Error (List String))
   | Msg_ReceivedAuthors (Result Http.Error (List String))
@@ -176,6 +194,8 @@ update msg model = case msg of
     if reset
       then (default_model, Cmd.none)
       else ({ model | app_state = State_Editing }, Cmd.none)
+
+  Msg_OpenComboChanged new_open_combo -> ({ model | currently_open_combo = new_open_combo }, Cmd.none)
 
   Msg_ReceivedCategories result ->
     case result of
@@ -261,6 +281,60 @@ input_box attributes text onChange = Input.text
   , placeholder = Nothing
   , label = labelHidden ""
   }
+
+-- copied from https://ellie-app.com/5X6jBKtxzdpa1 mentioned in https://package.elm-lang.org/packages/mdgriffith/elm-ui/latest/Element-Input
+on_enter : msg -> UI.Attribute msg
+on_enter msg =
+  UI.htmlAttribute
+    (Html.Events.on "keyup"
+      (Json.Decode.field "key" Json.Decode.string
+        |> Json.Decode.andThen
+            (\key ->
+              if key == "Enter" then
+                Json.Decode.succeed msg
+
+              else
+              Json.Decode.fail "Not the enter key"
+            )
+      )
+    )
+
+input_box_with_suggestions : List (UI.Attribute msg) -> 
+  { suggestions : List String
+  , text : String
+  , message : (String -> msg)
+  , change_open : (Maybe id -> msg)
+  , id : id
+  , currently_open_id : Maybe id 
+  } -> UI.Element msg
+input_box_with_suggestions attributes args = 
+  let 
+    filtered_suggestions = args.suggestions |> List.filter (\suggestion -> String.contains (String.toLower args.text) (String.toLower suggestion))
+
+    is_open = 
+      not (List.isEmpty filtered_suggestions) && 
+      case args.currently_open_id of
+        Nothing -> False
+        Just id -> args.id == id
+
+    suggestion_box = filtered_suggestions
+      |> List.map 
+        (\s -> UI.el 
+          [ UI.mouseOver [ Background.color Config.widget_hovered_background_color ]
+          , UI.width UI.fill
+          , UI.padding 5
+          , Events.onClick <| args.message s
+          ] 
+          <| UI.text s
+          )
+      |> UI.column (UI.width UI.fill :: Config.widget_common_attributes)
+
+    final_attributes = attributes 
+      |> List.append [ Events.onFocus <| args.change_open <| Just args.id, Events.onLoseFocus <| args.change_open Nothing ]
+      |> Utils.add_if is_open (UI.below suggestion_box)
+      |> Utils.add_if is_open (on_enter <| args.message (Maybe.withDefault "" <| List.head filtered_suggestions))
+  in
+    input_box final_attributes args.text args.message
 
 multiline_input_box : String -> (String -> Msg) -> UI.Element Msg
 multiline_input_box text onChange = Input.multiline
@@ -381,7 +455,7 @@ view_main_column form = UI.column
   ]
   [ row "Link"                  <| link_row form
   , row "Título"                <| input_box [] form.title Msg_TitleChanged
-  , row "Autor"                 <| input_box [] form.author Msg_AuthorChanged
+  , row "Autor"                 <| input_box_with_suggestions [] { text = form.author, suggestions = form.all_authors, message = Msg_AuthorChanged, id = ComboId_Author, currently_open_id = form.currently_open_combo, change_open = Msg_OpenComboChanged }
   , row "Fecha de publicación"  <| DatePicker.view Config.widget_common_attributes Msg_DatePublishedChanged form.date_published
   , row "Tipo"                  <| type_combo_button form.entry_type form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.currently_open_combo
@@ -432,8 +506,8 @@ view_image image_source = UI.el
           , description = "" 
           }
 
-view_category : String -> UI.Element Msg
-view_category category = UI.column 
+view_category : String -> List String -> Maybe ComboId -> UI.Element Msg
+view_category category all_categories curently_open_combo = UI.column 
   [ Border.color Config.transparentish_widget_border_color
   , Border.width 1
   , Border.rounded 3
@@ -441,11 +515,20 @@ view_category category = UI.column
   , UI.spacing 10
   ] 
   [ UI.text "Categoría"
-  , input_box [ UI.width (px 285), Font.size 15, UI.padding 7 ] category Msg_CategoryChanged 
+  , input_box_with_suggestions [ UI.width (px 285), Font.size 15, UI.padding 7 ]
+    { text = category
+    , suggestions = all_categories
+    , message = Msg_CategoryChanged
+    , change_open = Msg_OpenComboChanged
+    , id = ComboId_Category
+    , currently_open_id = curently_open_combo
+    }
   ]
 
-view_string_list : List String -> String -> (ListWidget.Msg String -> Msg) -> UI.Element Msg
-view_string_list list name message = UI.el 
+view_string_list : List String -> List String -> String -> (Int -> ComboId) -> Maybe ComboId -> (ListWidget.Msg String -> Msg) -> UI.Element Msg
+view_string_list list suggestions name id currently_open_combo message = UI.el 
+--view_string_list : List String -> String -> (ListWidget.Msg String -> Msg) -> UI.Element Msg
+--view_string_list list name message = UI.el 
   [ Border.color Config.transparentish_widget_border_color
   , Border.width 1
   , Border.rounded 3
@@ -455,7 +538,14 @@ view_string_list list name message = UI.el
     { state = list
     , name = name
     , default = ""
-    , view_element = (\s -> input_box [ Font.size 15, UI.padding 7 ] s (\x -> x))
+    , view_element = (\i s -> input_box_with_suggestions [ Font.size 15, UI.padding 7 ] 
+      { text = s
+      , suggestions = suggestions 
+      , message = (\new -> ListWidget.EditElement new)
+      , id = id i
+      , currently_open_id = currently_open_combo
+      , change_open = (\new_state -> ListWidget.PassThrough <| Msg_OpenComboChanged new_state)
+      })
     , message = message
     , button_attributes = Config.widget_common_attributes ++ [ Font.size 15, UI.padding 7 ]
     , width = px 250
@@ -468,10 +558,10 @@ view_side_column form = UI.column
   , UI.spacing 10
   ]
   [ view_image form.image
-  , view_category form.category
-  , view_string_list form.works_mentioned "Obras mencionadas" Msg_WorksMentioned
-  , view_string_list form.themes "Temas" Msg_Themes
-  , view_string_list form.tags "Etiquetas" Msg_Tags
+  , view_category form.category form.all_categories form.currently_open_combo
+  , view_string_list form.works_mentioned form.all_works "Obras mencionadas" ComboId_WorkMentioned form.currently_open_combo Msg_WorksMentioned
+  , view_string_list form.themes form.all_themes "Temas" ComboId_Theme form.currently_open_combo Msg_Themes
+  , view_string_list form.tags form.all_tags "Etiquetas" ComboId_Tag form.currently_open_combo Msg_Tags
   ]
 
 view_form : Model -> UI.Element Msg
