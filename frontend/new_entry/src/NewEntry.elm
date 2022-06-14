@@ -5,6 +5,7 @@ import Json.Encode as Json
 import Url
 import DateUtils
 import Utils
+import Time
 
 type alias Form =
   { link : String
@@ -15,7 +16,7 @@ type alias Form =
   , themes : List String
   , works_mentioned : List String
   , tags : List String
-  , date_published : Calendar.Date
+  , date_published : Maybe Calendar.Date
   , exceptional : Bool
   }
 
@@ -29,7 +30,8 @@ to_json form = Json.object
   , ("themes", Json.list Json.string form.themes)
   , ("works_mentioned", Json.list Json.string form.works_mentioned)
   , ("tags", Json.list Json.string form.tags)
-  , ("date_published", DateUtils.date_to_json form.date_published)
+    -- A Nothing should never happen here because validate detects that the date is not nothing.
+  , ("date_published", DateUtils.date_to_json (Maybe.withDefault (Calendar.fromPosix <| Time.millisToPosix 0) form.date_published))
   , ("exceptional", Json.bool form.exceptional)
   ]
 
@@ -58,4 +60,5 @@ validate form = make_error
   , (Utils.has_duplicates form.works_mentioned, "- Una de los obras mencionadas está dos veces en la lista")
   , (List.any String.isEmpty form.tags, "- Una de los etiquetas está vacía")
   , (Utils.has_duplicates form.tags, "- Una de los etiquetas está dos veces en la lista")
+  , (form.date_published == Nothing, "- La fecha está vacía")
   ]

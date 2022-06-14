@@ -32,7 +32,7 @@ calendar_element_size : number
 calendar_element_size = 41
 
 type alias State =
-  { date : Calendar.Date
+  { date : Maybe Calendar.Date
   , displayed_month : Time.Month
   , displayed_year : Int
   , enter_day_text : String
@@ -44,6 +44,7 @@ type alias State =
 type Msg
   = Msg_DisplayedMonthChanged MonthInYear
   | Msg_DateSelected Calendar.Date
+  | Msg_DateCleared
   | Msg_DayTextChanged String
   | Msg_MonthTextChanged String
   | Msg_YearTextChanged String
@@ -53,7 +54,7 @@ default_date = Calendar.fromPosix <| Time.millisToPosix 0
 
 make : { day : Int, month : Time.Month, year : Int } -> State
 make initial = 
-  { date = Maybe.withDefault default_date <| Calendar.fromRawParts { month = initial.month, year = initial.year, day = initial.day }
+  { date = Calendar.fromRawParts { month = initial.month, year = initial.year, day = initial.day }
   , displayed_month = initial.month
   , displayed_year = initial.year
   , enter_day_text = ""
@@ -80,7 +81,7 @@ parse_text_fields state = case String.toInt state.enter_day_text of
       Just year -> case Calendar.fromRawParts { day = day, month = int_to_month month, year = year } of
         Nothing -> { state | text_fields_represent_valid_date = False }
         Just date -> { state 
-          | date = date
+          | date = Just date
           , displayed_month = Calendar.getMonth date
           , displayed_year = Calendar.getYear date
           , text_fields_represent_valid_date = True 
@@ -90,7 +91,9 @@ update : Msg -> State -> State
 update msg state = case msg of
   Msg_DisplayedMonthChanged new_month_year -> { state | displayed_month = new_month_year.month, displayed_year = new_month_year.year }
   
-  Msg_DateSelected new_date -> { state | date = new_date }
+  Msg_DateSelected new_date -> { state | date = Just new_date }
+  
+  Msg_DateCleared -> { state | date = Nothing }
   
   Msg_DayTextChanged new_text -> case validate_number_string 2 new_text of
     Nothing -> state
@@ -122,7 +125,7 @@ pad_dates dates = case dates of
     let back_pad = Utils.missing_to_be_a_multiple_of 7 (List.length padded_front) in
     padded_front ++ List.repeat back_pad Nothing
 
-view_calendar_day : (Msg -> msg) -> Calendar.Date -> Maybe Calendar.Date -> UI.Element msg
+view_calendar_day : (Msg -> msg) -> Maybe Calendar.Date -> Maybe Calendar.Date -> UI.Element msg
 view_calendar_day message selected_date maybe_date = case maybe_date of
   Nothing -> UI.el
     [ UI.width (px calendar_element_size)
@@ -135,10 +138,10 @@ view_calendar_day message selected_date maybe_date = case maybe_date of
   Just date -> Input.button 
     [ UI.width (px calendar_element_size)
     , UI.height (px calendar_element_size)
-    , Background.color <| if selected_date == date then selected_color else widget_background_color
+    , Background.color <| if selected_date == Just date then selected_color else widget_background_color
     , Border.color widget_border_color
     , Border.width 1
-    , UI.mouseOver [ Background.color <| if selected_date == date then selected_hovered_color else (rgb 0.3 0.3 0.3) ]
+    , UI.mouseOver [ Background.color <| if selected_date == Just date then selected_hovered_color else (rgb 0.3 0.3 0.3) ]
     ]
     { label = UI.el [ UI.centerX, UI.centerY ] (date |> Calendar.getDay |> toString |> UI.text)
     , onPress = Just <| message <| Msg_DateSelected date

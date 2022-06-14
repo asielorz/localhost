@@ -2,12 +2,19 @@ module Main exposing (main)
 
 import Browser exposing (Document)
 import Element as UI exposing (rgb)
-import Element.Background as Background
 import Element.Font as Font
+import Element.Input as Input
+import Element.Border as Border
+import Element.Background as Background
 import Config
 import Entry exposing (Entry)
 import Http
 import Json.Decode
+import InputBox exposing (..)
+import ListWidget
+import DatePicker
+import Time
+import SearchQuery
 
 main : Program () Model Msg
 main = Browser.document 
@@ -17,21 +24,249 @@ main = Browser.document
   , subscriptions = \_ -> Sub.none
   }
 
-type alias Model = List Entry
+type ComboId
+  = ComboId_Author
+  | ComboId_Category
+  | ComboId_WorksMentioned Int
+  | ComboId_Themes Int
+  | ComboId_Tags Int
 
-type Msg = Msg_SearchResultArrived (Result (Http.Error) (List Entry))
+type alias Model = 
+  { entries : List Entry
+
+  -- search
+  , link : String
+  , title : String
+  , author : String
+  , description : String
+  , category : String
+  , works_mentioned : List String
+  , themes : List String
+  , tags : List String
+  , date_published_from : DatePicker.State
+  , date_published_until : DatePicker.State
+  , date_saved_from : DatePicker.State
+  , date_saved_until : DatePicker.State
+  , exceptional : Bool
+  , currently_open_combo : Maybe ComboId
+
+  -- cached
+  , all_authors : List String
+  , all_categories : List String
+  , all_works : List String
+  , all_themes : List String
+  , all_tags : List String
+  }
+
+type Msg
+  -- Edit query
+  = Msg_LinkChanged String
+  | Msg_TitleChanged String
+  | Msg_AuthorChanged String
+  | Msg_DescriptionChanged String
+  | Msg_CategoryChanged String
+  | Msg_WorksMentioned (ListWidget.Msg String)
+  | Msg_Themes (ListWidget.Msg String)
+  | Msg_Tags (ListWidget.Msg String)
+  | Msg_DatePublishedFromChanged DatePicker.Msg
+  | Msg_DatePublishedUntilChanged DatePicker.Msg
+  | Msg_DateSavedFromChanged DatePicker.Msg
+  | Msg_DateSavedUntilChanged DatePicker.Msg
+  | Msg_OpenComboChanged (Maybe ComboId)
+  | Msg_Search
+
+  -- Http from server
+  | Msg_ReceivedSearchResults (Result Http.Error (List Entry))
+  | Msg_ReceivedCategories (Result Http.Error (List String))
+  | Msg_ReceivedAuthors (Result Http.Error (List String))
+  | Msg_ReceivedThemes (Result Http.Error (List String))
+  | Msg_ReceivedWorks (Result Http.Error (List String))
+  | Msg_ReceivedTags (Result Http.Error (List String))
 
 default_model : Model
-default_model = []
+default_model = 
+  { entries = []
+
+  , link = ""
+  , title = ""
+  , author = ""
+  , description = ""
+  , category = ""
+  , works_mentioned = []
+  , themes = []
+  , tags = []
+  , date_published_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+  , date_published_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+  , date_saved_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+  , date_saved_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+  , exceptional = False
+  , currently_open_combo = Nothing
+
+  , all_authors = []
+  , all_categories = []
+  , all_works = []
+  , all_themes = []
+  , all_tags = []
+  }
 
 initial_commands : Cmd Msg
-initial_commands = Http.get { url = "http://localhost:8080/texts", expect = Http.expectJson Msg_SearchResultArrived (Json.Decode.list Entry.from_json) }
+initial_commands = Cmd.batch
+  [ Http.get { url = "http://localhost:8080/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+  ]
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
-  Msg_SearchResultArrived new_results -> case new_results of
-    Ok (actual_results) -> (actual_results, Cmd.none)
+  Msg_LinkChanged new_link -> 
+    ({ model | link = new_link }, Cmd.none)
+  
+  Msg_TitleChanged new_title -> 
+    ({ model | title = new_title }, Cmd.none)
+  
+  Msg_AuthorChanged new_author -> 
+    ({ model | author = new_author }, Cmd.none)
+  
+  Msg_DescriptionChanged new_description -> 
+    ({ model | description = new_description }, Cmd.none)
+  
+  Msg_CategoryChanged new_category -> 
+    ({ model | category = new_category }, Cmd.none)
+
+  Msg_WorksMentioned list_msg ->
+    ({ model | works_mentioned = (ListWidget.update list_msg model.works_mentioned) }, Cmd.none)
+
+  Msg_Themes list_msg ->
+    ({ model | themes = (ListWidget.update list_msg model.themes) }, Cmd.none)
+
+  Msg_Tags list_msg ->
+    ({ model | tags = (ListWidget.update list_msg model.tags) }, Cmd.none)
+
+  Msg_DatePublishedFromChanged date_picker_msg ->
+    ({ model | date_published_from = (DatePicker.update date_picker_msg model.date_published_from) }, Cmd.none)
+
+  Msg_DatePublishedUntilChanged date_picker_msg ->
+    ({ model | date_published_until = (DatePicker.update date_picker_msg model.date_published_until) }, Cmd.none)
+
+  Msg_DateSavedFromChanged date_picker_msg ->
+    ({ model | date_saved_from = (DatePicker.update date_picker_msg model.date_saved_from) }, Cmd.none)
+
+  Msg_DateSavedUntilChanged date_picker_msg ->
+    ({ model | date_saved_until = (DatePicker.update date_picker_msg model.date_saved_until) }, Cmd.none)
+
+  Msg_OpenComboChanged new_open_combo ->
+     ({ model | currently_open_combo = new_open_combo }, Cmd.none)
+
+  Msg_Search ->
+    (model, Http.get 
+      { url = SearchQuery.search_query
+        { link = model.link
+        , title = model.title
+        , author = model.author
+        , description = model.description
+        , category = model.category
+        , works_mentioned = model.works_mentioned
+        , themes = model.themes
+        , tags = model.tags
+        , published_between_from = DatePicker.date model.date_published_from
+        , published_between_until = DatePicker.date model.date_published_until
+        , saved_between_from = DatePicker.date model.date_saved_from
+        , saved_between_until = DatePicker.date model.date_saved_until
+        , exceptional = model.exceptional
+        }
+      , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
+      }
+    )
+
+  Msg_ReceivedSearchResults new_results -> case new_results of
+    Ok (actual_results) -> ({ model | entries = actual_results }, Cmd.none)
     Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedCategories result ->
+    case result of
+      Ok received_categories -> ({ model | all_categories = List.sort received_categories }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedAuthors result ->
+    case result of
+      Ok received_authors -> ({ model | all_authors = List.sort received_authors }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedThemes result ->
+    case result of
+      Ok received_themes -> ({ model | all_themes = List.sort received_themes }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedWorks result ->
+    case result of
+      Ok received_works -> ({ model | all_works = List.sort received_works }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedTags result ->
+    case result of
+      Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+with_label : String -> UI.Element msg -> UI.Element msg
+with_label label element = UI.column [ UI.width UI.fill, UI.spacing 5 ]
+  [ UI.text label
+  , element
+  ]
+
+search_button: UI.Element Msg
+search_button = Input.button 
+  (Config.widget_common_attributes ++
+  [ Background.color (rgb 0 0.6 0)
+  , Font.center
+  , UI.width UI.fill
+  ])
+  { onPress = Just Msg_Search
+  , label = UI.text "Buscar"
+  }
+
+view_search_column : List (UI.Attribute Msg) -> Model -> UI.Element Msg
+view_search_column attributes model = UI.column 
+  (attributes ++ 
+    [ UI.padding 20
+    , UI.spacing 10
+    , Border.widthEach { top = 0, bottom = 0, left = 0, right = 3 }
+    , Border.color Config.widget_border_color
+    ]
+  ) 
+  [ with_label "Link"       <| input_box [] model.link Msg_LinkChanged
+  , with_label "Título"       <| input_box [] model.title Msg_TitleChanged
+  , with_label "Autor"        <| input_box_with_suggestions [] 
+    { text = model.author
+    , suggestions = model.all_authors
+    , message = Msg_AuthorChanged
+    , id = ComboId_Author
+    , currently_open_id = model.currently_open_combo
+    , change_open = Msg_OpenComboChanged
+    }
+  , with_label "Descripción"  <| input_box [] model.description Msg_DescriptionChanged
+  , with_label "Categoría"    <| input_box_with_suggestions []
+    { text = model.category
+    , suggestions = model.all_categories
+    , message = Msg_CategoryChanged
+    , id = ComboId_Category
+    , currently_open_id = model.currently_open_combo
+    , change_open = Msg_OpenComboChanged
+    }
+  , view_string_list model.works_mentioned model.all_works "Obras mencionadas" ComboId_WorksMentioned model.currently_open_combo Msg_WorksMentioned Msg_OpenComboChanged
+  , view_string_list model.themes model.all_themes "Temas" ComboId_Themes model.currently_open_combo Msg_Themes Msg_OpenComboChanged
+  , view_string_list model.tags model.all_tags "Etiquetas" ComboId_Tags model.currently_open_combo Msg_Tags Msg_OpenComboChanged
+  , with_label "Publicado entre" <| UI.row [ UI.width UI.fill, UI.spacing 10 ] 
+    [ DatePicker.view Config.widget_common_attributes Msg_DatePublishedFromChanged model.date_published_from
+    , DatePicker.view Config.widget_common_attributes Msg_DatePublishedUntilChanged model.date_published_until
+    ]
+  , with_label "Guardado entre" <| UI.row [ UI.width UI.fill, UI.spacing 10 ] 
+    [ DatePicker.view Config.widget_common_attributes Msg_DateSavedFromChanged model.date_saved_from
+    , DatePicker.view Config.widget_common_attributes Msg_DateSavedUntilChanged model.date_saved_until
+    ]
+  , search_button
+  ]
 
 view : Model -> Document Msg
 view model =
@@ -43,6 +278,9 @@ view model =
         , UI.centerY
         , Font.color (rgb 1 1 1) 
         ] 
-        <| UI.column [ UI.centerX, UI.centerY, UI.spacing 20 ] (List.map Entry.view model)
+        <| UI.row [ UI.centerX, UI.width UI.fill, UI.height UI.fill ]
+        [ view_search_column [ UI.width (UI.fillPortion 1), UI.height UI.fill, UI.centerX ] model
+        , UI.el [UI.width (UI.fillPortion 3), UI.height UI.fill, UI.centerX, UI.centerY, UI.padding 20] <| UI.column [ UI.centerX, UI.spacing 20 ] (List.map Entry.view model.entries)
+        ] 
     ]
   }

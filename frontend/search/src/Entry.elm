@@ -79,7 +79,11 @@ view_image entry = UI.el
     }
 
 view_entry_data : Entry -> UI.Element msg
-view_entry_data entry = UI.column [ UI.spacing 5, UI.alignTop, UI.width (px 800) ]
+view_entry_data entry = UI.column 
+  [ UI.spacing 5
+  , UI.alignTop
+  , UI.width (px 800)
+  ]
   [ UI.row [ Font.size 25, UI.width UI.fill ] 
      [ UI.link [ UI.alignLeft ] { url = entry.link, label = UI.text entry.title }
      , fontawesome_text [ UI.alignRight, Font.color <| if entry.exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4) ] "\u{f005}" --fa-star

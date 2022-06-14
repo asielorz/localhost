@@ -40,12 +40,11 @@ type alias Args a msg =
   , view_element : Int -> a -> UI.Element (IntermediateMsg a msg)
   , message : (Msg a -> msg)
   , button_attributes : List (UI.Attribute msg)
-  , width : UI.Length
   }
 
 header_row : Args a msg -> UI.Element msg
-header_row args = UI.row [ UI.spacing 10 ] 
-  [ UI.el [ UI.width args.width ] <| UI.text args.name
+header_row args = UI.row [ UI.spacing 10, UI.width UI.fill ] 
+  [ UI.el [ UI.width UI.fill ] <| UI.text args.name
   , add_button args.button_attributes args.default args.message 
   ]
 
@@ -57,12 +56,12 @@ view_element view_fn message element index = UI.map
   ) (view_fn index element)
 
 element_row : Args a msg -> (Int, a) -> UI.Element msg
-element_row args (index, element) = UI.row [ UI.spacing 10 ] 
-  [ UI.el [ UI.width args.width ] <| view_element args.view_element args.message element index
+element_row args (index, element) = UI.row [ UI.spacing 10, UI.width UI.fill ] 
+  [ UI.el [ UI.width UI.fill ] <| view_element args.view_element args.message element index
   , remove_button args.button_attributes index args.message 
   ]
 
 view : Args a msg -> UI.Element msg
 view args = UI.column 
-  [ UI.spacing 10 ] 
+  [ UI.spacing 10, UI.width UI.fill ] 
   (header_row args :: List.map (element_row args) (enumerate args.state))

@@ -30,14 +30,9 @@ view_combo_content attributes args = UI.column
     ] 
     <| args.view_alternative alternative))
 
-is_open : id -> Maybe id -> Bool
-is_open combo_id currently_open_id = case currently_open_id of
-  Nothing -> False
-  Just id -> combo_id == id
-
 view : List (UI.Attribute msg) -> { combo_state : a, id : id, alternatives : List a, view_alternative : (a -> UI.Element msg), message : (Msg a -> msg), currently_open_id : Maybe id } -> UI.Element msg
 view attributes args = 
-  let open = is_open args.id args.currently_open_id
+  let open = Just args.id == args.currently_open_id
   in UI.el 
     (if open then [ UI.below (view_combo_content attributes { alternatives = args.alternatives, view_alternative = args.view_alternative, message = args.message }) ] else [])
     <| Input.button 

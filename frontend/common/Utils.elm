@@ -3,10 +3,12 @@ module Utils exposing (
   toupper_first, 
   missing_to_be_a_multiple_of, 
   fail_if_nothing, 
-  grid)
+  grid, on_enter
+  )
 
 import Json.Decode
 import Element as UI
+import Html.Events
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on lists
@@ -100,3 +102,20 @@ grid :
 grid args = UI.column 
   args.column_attributes 
   <| List.map (\row_elements -> UI.row args.row_attributes <| List.map args.view_element row_elements) args.grid_elements 
+
+-- copied from https://ellie-app.com/5X6jBKtxzdpa1 mentioned in https://package.elm-lang.org/packages/mdgriffith/elm-ui/latest/Element-Input
+on_enter : msg -> UI.Attribute msg
+on_enter msg =
+  UI.htmlAttribute
+    (Html.Events.on "keyup"
+      (Json.Decode.field "key" Json.Decode.string
+        |> Json.Decode.andThen
+            (\key ->
+              if key == "Enter" then
+                Json.Decode.succeed msg
+
+              else
+              Json.Decode.fail "Not the enter key"
+            )
+      )
+    )
