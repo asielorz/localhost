@@ -1,10 +1,15 @@
-module Utils exposing (const, add_if, enumerate, remove_at, replace_at, toupper_first, missing_to_be_a_multiple_of, chunk, fail_if_nothing, grid)
+module Utils exposing (
+  add_if, enumerate, remove_at, replace_at, chunk, adjacent, has_duplicates,
+  toupper_first, 
+  missing_to_be_a_multiple_of, 
+  fail_if_nothing, 
+  grid)
 
 import Json.Decode
 import Element as UI
 
-const : a -> b -> a
-const x _ = x
+---------------------------------------------------------------------------------------------------------
+-- operations on lists
 
 add_if : Bool -> a -> List a -> List a
 add_if cond elem list = if cond
@@ -28,11 +33,38 @@ replace_at index new_value list =
     then list
     else List.take index list ++ new_value :: List.drop (index + 1) list
 
+chunk : Int -> List a -> List (List a)
+chunk size list =
+  if size == 0
+  then []
+  else
+    if List.length list <= size
+      then [list]
+      else (List.take size list) :: chunk size (List.drop size list)
+
+adjacent : List a -> List (a, a)
+adjacent l = case l of 
+  [] -> []
+  (_::[]) -> []
+  (first::second::rest) -> (first, second) :: adjacent (second::rest)
+
+has_duplicates : List comparable -> Bool
+has_duplicates l = l
+  |> List.sort
+  |> adjacent
+  |> List.any (\(a, b) -> a == b)
+
+---------------------------------------------------------------------------------------------------------
+-- operations on strings
+
 toupper_first : String -> String
 toupper_first str =
   if String.isEmpty str
     then ""
     else String.toUpper (String.left 1 str) ++ (String.dropLeft 1 str) 
+
+---------------------------------------------------------------------------------------------------------
+-- operations on numbers
 
 -- throws an exception when divisor is 0.
 missing_to_be_a_multiple_of : Int -> Int -> Int
@@ -42,14 +74,8 @@ missing_to_be_a_multiple_of multiplier num =
     then 0
     else multiplier - mod
 
-chunk : Int -> List a -> List (List a)
-chunk size list =
-  if size == 0
-  then []
-  else
-    if List.length list <= size
-      then [list]
-      else (List.take size list) :: chunk size (List.drop size list)
+---------------------------------------------------------------------------------------------------------
+-- operations on json types
 
 -- Given a decoder that returns a maybe, makes it fail when the maybe is nothing.
 fail_if_nothing : String -> Json.Decode.Decoder (Maybe a) -> Json.Decode.Decoder a
@@ -60,6 +86,9 @@ fail_if_nothing error_message decoder =
       Nothing -> Json.Decode.fail error_message
     )
     decoder
+
+---------------------------------------------------------------------------------------------------------
+-- operations on UI elements
 
 grid : 
   { column_attributes : List (UI.Attribute msg) 

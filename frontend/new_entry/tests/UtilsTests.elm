@@ -241,3 +241,88 @@ chunk__remaining_elements = test
     [["a", "b"], ["c", "d"], ["e", "f"], ["g"]]
     (chunk 2 ["a", "b", "c", "d", "e", "f", "g"])
   )
+
+-- slide
+
+adjacent__adjacent_of_empty_list_is_empty_list : Test
+adjacent__adjacent_of_empty_list_is_empty_list = test
+  ("adjacent of an empty list is an empty list")
+  (\_ -> Expect.equal
+    []
+    (adjacent [])
+  )
+
+adjacent__adjacent_of_a_list_of_one_element_is_empty_list : Test
+adjacent__adjacent_of_a_list_of_one_element_is_empty_list = test
+  ("adjacent of a list with a single element is an empty list")
+  (\_ -> Expect.equal
+    []
+    (adjacent [4])
+  )
+
+adjacent__adjacent_of_a_list_of_two_elements_is_a_list_with_single_pair : Test
+adjacent__adjacent_of_a_list_of_two_elements_is_a_list_with_single_pair = test
+  ("adjacent of a list with two elements is a list with a single pair containing both elements")
+  (\_ -> Expect.equal
+    [(4, 5)]
+    (adjacent [4, 5])
+  )
+
+adjacent__list_with_many_elements : Test
+adjacent__list_with_many_elements = test
+  ("adjacent of a list with many elements returns a list of all adjacent pairs")
+  (\_ -> Expect.equal
+    [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)]
+    (adjacent [1, 2, 3, 4, 5, 6])
+  )
+
+-- has_duplicates
+
+has_duplicates__an_empty_list_never_has_duplicates : Test
+has_duplicates__an_empty_list_never_has_duplicates = test
+  ("An empty list does not have duplicates")
+  (\_ -> Expect.equal
+    False
+    (has_duplicates [])
+  )
+
+has_duplicates__a_list_with_one_element_never_has_duplicates : Test
+has_duplicates__a_list_with_one_element_never_has_duplicates = test
+  ("A list with a single element does not have duplicates")
+  (\_ -> Expect.equal
+    False
+    (has_duplicates [4])
+  )
+
+has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__false_case : Test
+has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__false_case = test
+  ("A list with two different elements does not have duplicates")
+  (\_ -> Expect.equal
+    False
+    (has_duplicates [4, 5])
+  )
+
+has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__true_case : Test
+has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__true_case = test
+  ("A list with two equal elements has duplicates")
+  (\_ -> Expect.equal
+    True
+    (has_duplicates [4, 4])
+  )
+
+has_duplicates__a_list_with_no_equal_elements_has_no_duplicates : Test
+has_duplicates__a_list_with_no_equal_elements_has_no_duplicates = test
+  ("A list with no equal elements does not have duplicates")
+  (\_ -> Expect.equal
+    False
+    (has_duplicates [4, 2, 0, 5, 7, 3])
+  )
+  
+has_duplicates__duplicates_do_not_need_to_be_adjacent : Test
+has_duplicates__duplicates_do_not_need_to_be_adjacent = test
+  ("Duplicates do not need to be adjacent")
+  (\_ -> Expect.equal
+    True
+    (has_duplicates [4, 2, 0, 5, 7, 3, 4])
+  )
+  

@@ -4,6 +4,7 @@ import Calendar
 import Json.Encode as Json
 import Url
 import DateUtils
+import Utils
 
 type alias Form =
   { link : String
@@ -52,6 +53,9 @@ validate form = make_error
   , (String.isEmpty form.author, "- El autor está vacío")
   , (String.isEmpty form.category, "- La categoría está vacía")
   , (List.any String.isEmpty form.themes, "- Uno de los temas está vacío")
+  , (Utils.has_duplicates form.themes, "- Uno de los temas está dos veces en la lista")
   , (List.any String.isEmpty form.works_mentioned, "- Una de las obras mencionadas está vacía")
+  , (Utils.has_duplicates form.works_mentioned, "- Una de los obras mencionadas está dos veces en la lista")
   , (List.any String.isEmpty form.tags, "- Una de los etiquetas está vacía")
+  , (Utils.has_duplicates form.tags, "- Una de los etiquetas está dos veces en la lista")
   ]
