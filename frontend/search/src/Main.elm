@@ -20,6 +20,7 @@ import Browser exposing (UrlRequest)
 import Url
 import Url exposing (Url)
 import Url.Parser exposing (query)
+import Banner
 
 main : Program () Model Msg
 main = Browser.application 
@@ -105,7 +106,7 @@ init key url =
         
       , entries = []
 
-      , link = Maybe.withDefault "default" url.query
+      , link = ""
       , title = ""
       , author = ""
       , description = ""
@@ -269,7 +270,9 @@ update msg model = case msg of
       Err _ -> (model, Cmd.none)
 
   Msg_UrlRequest request -> case request of
-    Browser.Internal url -> (model, Navigation.pushUrl model.navigation_key (Url.toString url))
+    Browser.Internal url -> if url.path == "search"
+      then (model, Navigation.pushUrl model.navigation_key (Url.toString url))
+      else (model, Navigation.load (Url.toString url))
     Browser.External link -> (model, Navigation.load link)
 
 with_label : String -> UI.Element msg -> UI.Element msg
@@ -331,9 +334,19 @@ view_search_column attributes model = UI.column
   , search_button
   ]
 
+view_model : Model -> UI.Element Msg
+view_model model = UI.row 
+  [ UI.centerX
+  , UI.width UI.fill
+  , UI.height UI.fill
+  ]
+  [ view_search_column [ UI.width (UI.fillPortion 1), UI.height UI.fill, UI.centerX ] model
+  , UI.el [UI.width (UI.fillPortion 3), UI.height UI.fill, UI.centerX, UI.centerY, UI.padding 20] <| UI.column [ UI.centerX, UI.spacing 20 ] (List.map Entry.view model.entries)
+  ]
+
 view : Model -> Document Msg
 view model =
-  { title = "Buscar"
+  { title = "Buscar | localhost"
   , body = 
     [ UI.layout 
         [ Background.color Config.background_color
@@ -341,9 +354,6 @@ view model =
         , UI.centerY
         , Font.color (rgb 1 1 1) 
         ] 
-        <| UI.row [ UI.centerX, UI.width UI.fill, UI.height UI.fill ]
-        [ view_search_column [ UI.width (UI.fillPortion 1), UI.height UI.fill, UI.centerX ] model
-        , UI.el [UI.width (UI.fillPortion 3), UI.height UI.fill, UI.centerX, UI.centerY, UI.padding 20] <| UI.column [ UI.centerX, UI.spacing 20 ] (List.map Entry.view model.entries)
-        ] 
+        <| Banner.with_banners (view_model model)
     ]
   }

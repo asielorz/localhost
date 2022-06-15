@@ -20,6 +20,7 @@ import Config
 import Http
 import Json.Decode
 import InputBox exposing (..)
+import Banner
 
 main : Program () Model Msg
 main = Browser.document 
@@ -507,7 +508,7 @@ view_dialog form = case form.app_state of
 
 view : Model -> Document Msg
 view model =
-  { title = "Nueva entrada"
+  { title = "Nueva entrada | localhost"
   , body = 
     [ UI.layout 
         [ Background.color Config.background_color
@@ -516,6 +517,6 @@ view model =
         , Font.color (rgb 1 1 1) 
         , UI.inFront <| Dialog.view <| view_dialog model
         ]
-        (view_form model) 
+        <| Banner.with_banners (view_form model)
     ]
   }
