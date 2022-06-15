@@ -24,7 +24,8 @@ import Utils
 import File exposing (File)
 import File.Select
 import Task
-import Image exposing (Image)
+import Base64
+import Bytes exposing (Bytes)
 
 main : Program () Model Msg
 main = Browser.document 
@@ -57,7 +58,7 @@ type AppState
 type EntryImage
   = Image_None
   | Image_Url String
-  | Image_File { path : String, url : String, image : Image }
+  | Image_File { path : String, url : String, image : Bytes }
 
 type alias Model = 
   { link : String
@@ -141,7 +142,7 @@ type Msg
   -- Image
   | Msg_ImageFileButtonClicked
   | Msg_ImageFileOpened File
-  | Msg_ImageLoaded (String, Image)
+  | Msg_ImageLoaded { path : String, url : String, image : Bytes }
   | Msg_ImageUrlButtonClicked
   | Msg_InputUrlChanged String
   | Msg_ImageUrlChosen String
@@ -231,16 +232,16 @@ update msg model = case msg of
   Msg_ImageFileOpened file ->
     (model
     , File.toBytes file
-      |> Task.map Image.decode
-      |> Task.perform
-        (\maybe_image -> case maybe_image of
+      |> Task.map 
+        (\bytes -> case Base64.fromBytes bytes of 
           Nothing -> Msg_Noop
-          Just image -> Msg_ImageLoaded (File.name file, image)
+          Just base64 -> Msg_ImageLoaded { path = File.name file, url = "data:image/png;base64," ++ base64, image = bytes }
         )
+      |> Task.perform identity
     )
 
-  Msg_ImageLoaded (path, image) ->
-    ({model | image = Image_File { path = path, url = Image.toPngUrl image, image = image } }, Cmd.none)
+  Msg_ImageLoaded image ->
+    ({model | image = Image_File image }, Cmd.none)
 
   Msg_ImageUrlButtonClicked ->
     ({ model | app_state = State_InputUrl { url = "" } }, Cmd.none)
