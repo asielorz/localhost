@@ -19,7 +19,6 @@ import SearchQuery
 import Browser exposing (UrlRequest)
 import Url
 import Url exposing (Url)
-import Debug
 import Url.Parser exposing (query)
 
 main : Program () Model Msg
