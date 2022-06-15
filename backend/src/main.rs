@@ -12,6 +12,7 @@ use chrono;
 use chrono::Datelike;
 use percent_encoding::percent_decode_str;
 use std::cmp::{Ord, Ordering};
+use std::env;
 
 #[macro_use]
 extern crate lazy_static;
@@ -400,18 +401,18 @@ impl Requests
     fn options() -> Result<Response<Body>, hyper::Error>
     {
         println!("Options!");
-        return Ok(Response::builder()
+        return Response::builder()
             .status(StatusCode::NO_CONTENT)
             .header("Allow", "OPTIONS, GET, POST")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .body(Body::from(""))
-            .unwrap()
-        );
+            .or_else(|_| Requests::internal_server_error_response());
     }
 
     fn internal_server_error_response() -> Result<Response<Body>, hyper::Error>
     {
+        println!("500 Internal server error");
         return Ok(Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .header("Access-Control-Allow-Origin", "*")
@@ -424,13 +425,13 @@ impl Requests
     fn entries_as_http_response(entries : &[Entry]) -> Result<Response<Body>, hyper::Error>
     {
         if let Ok(json) = serde_json::to_string(entries) {
-            return Ok(Response::builder()
+            return Response::builder()
                 .status(StatusCode::OK)
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Headers", "*")
+                .header("Content-Type", "application/json")
                 .body(Body::from(json))
-                .unwrap()
-            );
+                .or_else(|_| Requests::internal_server_error_response());
         } else {
             return Requests::internal_server_error_response();
         }
@@ -440,7 +441,6 @@ impl Requests
     {
         match req.uri().query() {
             Some(query_text) => {
-                println!("Query: {}", query_text);
                 if let Some(query) = parse_query(query_text) {
                     let state = STATE.lock().unwrap();
                     let mut filtered : Vec<Entry> = Vec::new();
@@ -460,13 +460,13 @@ impl Requests
     fn strings_as_http_response(strings : &HashSet<String>) -> Result<Response<Body>, hyper::Error>
     {
         if let Ok(json) = serde_json::to_string(strings) {
-            return Ok(Response::builder()
+            return Response::builder()
                 .status(StatusCode::OK)
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Headers", "*")
+                .header("Content-Type", "application/json")
                 .body(Body::from(json))
-                .unwrap()
-            );
+                .or_else(|_| Requests::internal_server_error_response());
         } else {
             return Requests::internal_server_error_response();
         }
@@ -513,36 +513,63 @@ impl Requests
                     }
                 }
 
-                Ok(
-                    Response::builder()
-                        .status(StatusCode::OK)
-                        .header("Access-Control-Allow-Origin", "*")
-                        .header("Access-Control-Allow-Headers", "*")
-                        .body(Body::from(r#"{"success":"true"}"#))
-                        .unwrap()
-                )
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Headers", "*")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(r#"{"success":"true"}"#))
+                    .or_else(|_| Requests::internal_server_error_response())
             }
             Err(err) => {
                 println!("Rejecting bad request: {}", err);
                 
-                Ok(Response::builder()
+                Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .header("Access-Control-Allow-Origin", "*")
                     .header("Access-Control-Allow-Headers", "*")
+                    .header("Content-Type", "application/json")
                     .body(Body::from(format!("Invalid entry: {}", err)))
-                    .unwrap()
-                )
+                    .or_else(|_| Requests::internal_server_error_response())
             }
+        }
+    }
+
+    fn serve_page(path : &str) -> Result<Response<Body>, hyper::Error>
+    {
+        return Requests::serve_file(path, "text/html");
+    }
+
+    fn serve_file(path : &str, content_type : &str) -> Result<Response<Body>, hyper::Error>
+    {
+        match fs::read(path) {
+            Ok(content) =>{
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Headers", "*")
+                    .header("Content-Type", content_type)
+                    .body(Body::from(content))
+                    .or_else(|_| Requests::internal_server_error_response())
+            }
+            Err(_) => Requests::internal_server_error_response()
         }
     }
 }
 
 async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::Error> 
 {
-    println!("Processing {} request at path {}", req.method(), req.uri().path());
+    match req.uri().query() {
+        Some(query_text) => { println!("Processing {} request at path {} with query {}", req.method(), req.uri().path(), query_text); }
+        None             => { println!("Processing {} request at path {}", req.method(), req.uri().path()); }
+    };
 
     match (req.method(), req.uri().path()) {
         (&Method::OPTIONS, _) => Requests::options(),
+
+        (&Method::GET, "/new_entry") => Requests::serve_page("pages/new_entry.html"),
+        (&Method::GET, "/search") => Requests::serve_page("pages/search.html"),
+        (&Method::GET, "/favicon.ico") => Requests::serve_file("pages/favicon.ico", "image/vnd.microsoft.icon"),
 
         (&Method::GET, "/texts") => Requests::get_texts(req),
         
@@ -556,6 +583,7 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
 
         // Return the 404 Not Found for other routes.
         _ => {
+            println!("404 Not found");
             Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from(""))
@@ -591,6 +619,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let server = Server::bind(&addr).serve(make_svc);
 
+    println!("Current dir: {}", env::current_dir().unwrap().to_str().unwrap());
     println!("Listening on http://{}", addr);
 
     server.await?;

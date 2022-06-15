@@ -1,4 +1,4 @@
-module DatePicker exposing (State, Msg, date, make, make_empty, update, view)
+module DatePicker exposing (State, Msg, date, set_date, make, make_empty, update, view)
 
 import Element as UI
 import Element.Input as Input
@@ -19,6 +19,14 @@ type Msg
 
 date : State -> Maybe Calendar.Date
 date state = state.calendar.date
+
+set_date : Maybe Calendar.Date -> State -> State
+set_date new_date state = 
+  let 
+    calendar = state.calendar
+    updated_calendar = { calendar | date = new_date }
+  in
+    { state | calendar = updated_calendar }
 
 make : { day : Int, month : Time.Month, year : Int } -> State
 make initial = { calendar = CalendarWidget.make initial, is_open = False }

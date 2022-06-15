@@ -1,6 +1,7 @@
 module Main exposing (main)
 
 import Browser exposing (Document)
+import Browser.Navigation as Navigation
 import Element as UI exposing (rgb)
 import Element.Font as Font
 import Element.Input as Input
@@ -15,13 +16,20 @@ import ListWidget
 import DatePicker
 import Time
 import SearchQuery
+import Browser exposing (UrlRequest)
+import Url
+import Url exposing (Url)
+import Debug
+import Url.Parser exposing (query)
 
 main : Program () Model Msg
-main = Browser.document 
-  { init = \() -> (default_model, initial_commands)
+main = Browser.application 
+  { init = \() url key -> init key url
   , update = update
   , view = view
   , subscriptions = \_ -> Sub.none
+  , onUrlRequest = Msg_UrlRequest
+  , onUrlChange = always Msg_Noop
   }
 
 type ComboId
@@ -32,7 +40,9 @@ type ComboId
   | ComboId_Tags Int
 
 type alias Model = 
-  { entries : List Entry
+  { navigation_key : Navigation.Key
+    
+  , entries : List Entry
 
   -- search
   , link : String
@@ -43,10 +53,10 @@ type alias Model =
   , works_mentioned : List String
   , themes : List String
   , tags : List String
-  , date_published_from : DatePicker.State
-  , date_published_until : DatePicker.State
-  , date_saved_from : DatePicker.State
-  , date_saved_until : DatePicker.State
+  , published_between_from : DatePicker.State
+  , published_between_until : DatePicker.State
+  , saved_between_from : DatePicker.State
+  , saved_between_until : DatePicker.State
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
 
@@ -60,7 +70,9 @@ type alias Model =
 
 type Msg
   -- Edit query
-  = Msg_LinkChanged String
+  = Msg_Noop
+  
+  | Msg_LinkChanged String
   | Msg_TitleChanged String
   | Msg_AuthorChanged String
   | Msg_DescriptionChanged String
@@ -83,43 +95,87 @@ type Msg
   | Msg_ReceivedWorks (Result Http.Error (List String))
   | Msg_ReceivedTags (Result Http.Error (List String))
 
-default_model : Model
-default_model = 
-  { entries = []
+  -- Url messages from the application
+  | Msg_UrlRequest UrlRequest
 
-  , link = ""
-  , title = ""
-  , author = ""
-  , description = ""
-  , category = ""
-  , works_mentioned = []
-  , themes = []
-  , tags = []
-  , date_published_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , date_published_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , date_saved_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , date_saved_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , exceptional = False
-  , currently_open_combo = Nothing
+init : Navigation.Key -> Url -> (Model, Cmd Msg)
+init key url = 
+  let
+    default_model =
+      { navigation_key = key
+        
+      , entries = []
 
-  , all_authors = []
-  , all_categories = []
-  , all_works = []
-  , all_themes = []
-  , all_tags = []
+      , link = Maybe.withDefault "default" url.query
+      , title = ""
+      , author = ""
+      , description = ""
+      , category = ""
+      , works_mentioned = []
+      , themes = []
+      , tags = []
+      , published_between_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+      , published_between_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+      , saved_between_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+      , saved_between_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
+      , exceptional = False
+      , currently_open_combo = Nothing
+
+      , all_authors = []
+      , all_categories = []
+      , all_works = []
+      , all_themes = []
+      , all_tags = []
+      }
+
+    initial_commands = 
+      [ Http.get { url = "http://localhost:8080/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+      ]
+  in case url.query of
+    Nothing -> (default_model, Cmd.batch initial_commands)
+    Just query_string -> case SearchQuery.search_ui_state_from_query query_string of
+      Nothing -> (default_model, Cmd.batch initial_commands)
+      Just query -> 
+        let 
+          model = 
+            { default_model
+            | link = query.link
+            , title = query.title
+            , author = query.author
+            , description = query.description
+            , category = query.category
+            , works_mentioned = query.works_mentioned
+            , themes = query.themes
+            , tags = query.tags
+            , published_between_from = DatePicker.set_date query.published_between_from default_model.published_between_from
+            , published_between_until = DatePicker.set_date query.published_between_until default_model.published_between_until
+            , saved_between_from = DatePicker.set_date query.saved_between_from default_model.saved_between_from
+            , saved_between_until = DatePicker.set_date query.saved_between_until default_model.saved_between_until
+            , exceptional = query.exceptional
+            }
+
+          commands =
+            texts_query_command ("?" ++ query_string)
+            :: initial_commands
+        in
+          (model, Cmd.batch commands)
+
+-- query_string is only the parameters. The part that starts with '?'. It is assumed to start with '?'.
+texts_query_command : String -> Cmd Msg
+texts_query_command query_string = Http.get 
+  { url = "http://localhost:8080/texts" ++ query_string
+  , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
   }
-
-initial_commands : Cmd Msg
-initial_commands = Cmd.batch
-  [ Http.get { url = "http://localhost:8080/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
-  ]
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
+  Msg_Noop ->
+    (model, Cmd.none)
+
   Msg_LinkChanged new_link -> 
     ({ model | link = new_link }, Cmd.none)
   
@@ -145,23 +201,23 @@ update msg model = case msg of
     ({ model | tags = (ListWidget.update list_msg model.tags) }, Cmd.none)
 
   Msg_DatePublishedFromChanged date_picker_msg ->
-    ({ model | date_published_from = (DatePicker.update date_picker_msg model.date_published_from) }, Cmd.none)
+    ({ model | published_between_from = (DatePicker.update date_picker_msg model.published_between_from) }, Cmd.none)
 
   Msg_DatePublishedUntilChanged date_picker_msg ->
-    ({ model | date_published_until = (DatePicker.update date_picker_msg model.date_published_until) }, Cmd.none)
+    ({ model | published_between_until = (DatePicker.update date_picker_msg model.published_between_until) }, Cmd.none)
 
   Msg_DateSavedFromChanged date_picker_msg ->
-    ({ model | date_saved_from = (DatePicker.update date_picker_msg model.date_saved_from) }, Cmd.none)
+    ({ model | saved_between_from = (DatePicker.update date_picker_msg model.saved_between_from) }, Cmd.none)
 
   Msg_DateSavedUntilChanged date_picker_msg ->
-    ({ model | date_saved_until = (DatePicker.update date_picker_msg model.date_saved_until) }, Cmd.none)
+    ({ model | saved_between_until = (DatePicker.update date_picker_msg model.saved_between_until) }, Cmd.none)
 
   Msg_OpenComboChanged new_open_combo ->
      ({ model | currently_open_combo = new_open_combo }, Cmd.none)
 
   Msg_Search ->
-    (model, Http.get 
-      { url = SearchQuery.search_query
+    let 
+      query = SearchQuery.search_query
         { link = model.link
         , title = model.title
         , author = model.author
@@ -170,14 +226,18 @@ update msg model = case msg of
         , works_mentioned = model.works_mentioned
         , themes = model.themes
         , tags = model.tags
-        , published_between_from = DatePicker.date model.date_published_from
-        , published_between_until = DatePicker.date model.date_published_until
-        , saved_between_from = DatePicker.date model.date_saved_from
-        , saved_between_until = DatePicker.date model.date_saved_until
+        , published_between_from = DatePicker.date model.published_between_from
+        , published_between_until = DatePicker.date model.published_between_until
+        , saved_between_from = DatePicker.date model.saved_between_from
+        , saved_between_until = DatePicker.date model.saved_between_until
         , exceptional = model.exceptional
         }
-      , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
-      }
+    in
+      (model
+      , Cmd.batch
+        [ Navigation.pushUrl model.navigation_key ("/search" ++ query)
+        , texts_query_command query
+        ]
     )
 
   Msg_ReceivedSearchResults new_results -> case new_results of
@@ -208,6 +268,10 @@ update msg model = case msg of
     case result of
       Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
       Err _ -> (model, Cmd.none)
+
+  Msg_UrlRequest request -> case request of
+    Browser.Internal url -> (model, Navigation.pushUrl model.navigation_key (Url.toString url))
+    Browser.External link -> (model, Navigation.load link)
 
 with_label : String -> UI.Element msg -> UI.Element msg
 with_label label element = UI.column [ UI.width UI.fill, UI.spacing 5 ]
@@ -258,12 +322,12 @@ view_search_column attributes model = UI.column
   , view_string_list model.themes model.all_themes "Temas" ComboId_Themes model.currently_open_combo Msg_Themes Msg_OpenComboChanged
   , view_string_list model.tags model.all_tags "Etiquetas" ComboId_Tags model.currently_open_combo Msg_Tags Msg_OpenComboChanged
   , with_label "Publicado entre" <| UI.row [ UI.width UI.fill, UI.spacing 10 ] 
-    [ DatePicker.view Config.widget_common_attributes Msg_DatePublishedFromChanged model.date_published_from
-    , DatePicker.view Config.widget_common_attributes Msg_DatePublishedUntilChanged model.date_published_until
+    [ DatePicker.view Config.widget_common_attributes Msg_DatePublishedFromChanged model.published_between_from
+    , DatePicker.view Config.widget_common_attributes Msg_DatePublishedUntilChanged model.published_between_until
     ]
   , with_label "Guardado entre" <| UI.row [ UI.width UI.fill, UI.spacing 10 ] 
-    [ DatePicker.view Config.widget_common_attributes Msg_DateSavedFromChanged model.date_saved_from
-    , DatePicker.view Config.widget_common_attributes Msg_DateSavedUntilChanged model.date_saved_until
+    [ DatePicker.view Config.widget_common_attributes Msg_DateSavedFromChanged model.saved_between_from
+    , DatePicker.view Config.widget_common_attributes Msg_DateSavedUntilChanged model.saved_between_until
     ]
   , search_button
   ]
