@@ -1,7 +1,7 @@
 module Main exposing (main)
 
 import Browser exposing (Document)
-import Element as UI exposing (rgb, px)
+import Element as UI exposing (rgb, px, rgba)
 import Element.Background as Background
 import Element.Input as Input
 import Element.Font as Font
@@ -13,7 +13,6 @@ import Fontawesome exposing (fontawesome)
 import DatePicker
 import Time
 import Http
-import Dialog
 import NewEntry
 import Html exposing (form)
 import Config
@@ -21,6 +20,11 @@ import Http
 import Json.Decode
 import InputBox exposing (..)
 import Banner
+import Utils
+import File exposing (File)
+import File.Select
+import Task
+import Image exposing (Image)
 
 main : Program () Model Msg
 main = Browser.document 
@@ -45,13 +49,21 @@ type ComboId
   | ComboId_Theme Int
   | ComboId_Tag Int
 
-type AppState = State_Editing | State_SendSucceeded | State_SendFailed String
+type AppState 
+  = State_Editing 
+  | State_Notify { message : String, reset_on_close : Bool }
+  | State_InputUrl { url : String }
+
+type EntryImage
+  = Image_None
+  | Image_Url String
+  | Image_File { path : String, url : String, image : Image }
 
 type alias Model = 
   { link : String
   , title : String
   , backup : Backup
-  , image : Maybe String
+  , image : EntryImage
   , description : String
   , author : String
   , category : String
@@ -77,7 +89,7 @@ default_model =
   { link = ""
   , title = ""
   , backup = NoBackup
-  , image = Nothing
+  , image = Image_None
   , description = ""
   , author = ""
   , category = ""
@@ -108,6 +120,8 @@ initial_commands = Cmd.batch
 
 type Msg 
   = Msg_Noop
+
+  -- UI
   | Msg_LinkChanged String
   | Msg_TitleChanged String
   | Msg_AuthorChanged String
@@ -121,10 +135,19 @@ type Msg
   | Msg_Tags (ListWidget.Msg String)
   | Msg_DatePublishedChanged DatePicker.Msg
   | Msg_Send
-  | Msg_ResponseToSendArrived (Result Http.Error String)
   | Msg_CloseResponseDialog Bool
   | Msg_OpenComboChanged (Maybe ComboId)
 
+  -- Image
+  | Msg_ImageFileButtonClicked
+  | Msg_ImageFileOpened File
+  | Msg_ImageLoaded (String, Image)
+  | Msg_ImageUrlButtonClicked
+  | Msg_InputUrlChanged String
+  | Msg_ImageUrlChosen String
+
+  -- Server
+  | Msg_ResponseToSendArrived (Result Http.Error String)
   | Msg_ReceivedCategories (Result Http.Error (List String))
   | Msg_ReceivedAuthors (Result Http.Error (List String))
   | Msg_ReceivedThemes (Result Http.Error (List String))
@@ -141,6 +164,12 @@ set_open_combo id model = { model | currently_open_combo = id }
 
 set_backup : Backup -> Model -> Model
 set_backup backup model = { model | backup = backup }
+
+notify_success : AppState
+notify_success = State_Notify { message = "Nueva entrada añadida correctamente.", reset_on_close = True }
+
+notify_error : String -> AppState
+notify_error error_message = State_Notify { message = "Error al añadir nueva entrada: " ++ error_message, reset_on_close = False }
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
@@ -183,11 +212,8 @@ update msg model = case msg of
   Msg_DatePublishedChanged date_picker_msg ->
     ({ model | date_published = DatePicker.update date_picker_msg model.date_published }, Cmd.none)
 
-  Msg_Send -> send_button_clicked model
-
-  Msg_ResponseToSendArrived response -> case response of
-    Ok _ -> ({ model | app_state = State_SendSucceeded }, Cmd.none)
-    Err err -> ({ model | app_state = State_SendFailed (http_error_to_string err) }, Cmd.none)
+  Msg_Send -> 
+    send_button_clicked model
 
   Msg_CloseResponseDialog reset ->
     if reset
@@ -196,6 +222,40 @@ update msg model = case msg of
 
   Msg_OpenComboChanged new_open_combo -> 
     ({ model | currently_open_combo = new_open_combo }, Cmd.none)
+
+  -- Image
+
+  Msg_ImageFileButtonClicked ->
+    (model, File.Select.file ["image/png","image/bmp"] Msg_ImageFileOpened)
+
+  Msg_ImageFileOpened file ->
+    (model
+    , File.toBytes file
+      |> Task.map Image.decode
+      |> Task.perform
+        (\maybe_image -> case maybe_image of
+          Nothing -> Msg_Noop
+          Just image -> Msg_ImageLoaded (File.name file, image)
+        )
+    )
+
+  Msg_ImageLoaded (path, image) ->
+    ({model | image = Image_File { path = path, url = Image.toPngUrl image, image = image } }, Cmd.none)
+
+  Msg_ImageUrlButtonClicked ->
+    ({ model | app_state = State_InputUrl { url = "" } }, Cmd.none)
+
+  Msg_InputUrlChanged new_url ->
+    ({ model | app_state = State_InputUrl { url = new_url } }, Cmd.none)
+
+  Msg_ImageUrlChosen new_url ->
+    ({ model | image = Image_Url new_url, app_state = State_Editing }, Cmd.none)
+
+  -- Server
+
+  Msg_ResponseToSendArrived response -> case response of
+    Ok _ -> ({ model | app_state = notify_success }, Cmd.none)
+    Err err -> ({ model | app_state = notify_error (http_error_to_string err) }, Cmd.none)
 
   Msg_ReceivedCategories result ->
     case result of
@@ -261,7 +321,7 @@ send_button_clicked model = case make_new_entry_form model of
     )
 
   Err err -> 
-    ({model | app_state = State_SendFailed <| "El formulario no es válido:\n" ++ err}
+    ({model | app_state = notify_error <| "El formulario no es válido:\n" ++ err}
     , Cmd.none
     )
 
@@ -331,12 +391,12 @@ backup_row backup = case backup of
       , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
       }
     , UI.el 
-      (Config.widget_common_attributes ++ [ UI.width (px 287), Border.color error_color, Font.color error_color ])
+      (Config.widget_common_attributes ++ [ UI.width UI.fill, Border.color error_color, Font.color error_color ])
       (UI.text <| Maybe.withDefault "No hay archivo elegido" path)
     ]
 
 backup_combo_button : Backup -> Maybe ComboId -> UI.Element Msg
-backup_combo_button backup currently_open_combo = UI.row [ UI.spacing 10 ]
+backup_combo_button backup currently_open_combo = UI.row [ UI.spacing 10, UI.width UI.fill ]
   <| Combo.view 
       (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 150) ])
       { combo_state = backup
@@ -388,31 +448,31 @@ view_main_column form = UI.column
   , row ""                      <| send_button
   ]
 
-view_image : Maybe String -> UI.Element Msg
+view_image : EntryImage -> UI.Element Msg
 view_image image_source = UI.el 
   [ UI.width (px 304)
   , UI.height (px 173) 
   , Border.color Config.widget_border_color
   , Border.width 2
+  , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 6 ] 
+    [ Input.button []
+      { onPress = Just Msg_ImageFileButtonClicked
+      , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
+      }
+    , Input.button []
+      { onPress = Just Msg_ImageUrlButtonClicked
+      , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f0ac}")
+      }
+    ]
   ]
   <| case image_source of
-      Nothing -> 
+      Image_None -> 
         UI.el
           [ UI.width (px 300)
           , UI.height (px 169)
           , Background.color Config.widget_background_color
           , UI.centerX
           , UI.centerY
-          , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 5 ] 
-            [ Input.button []
-              { onPress = Nothing
-              , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
-              }
-            , Input.button []
-              { onPress = Nothing
-              , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f0ac}")
-              }
-            ]
           ]
           <| UI.el 
             [ UI.centerX
@@ -422,12 +482,21 @@ view_image image_source = UI.el
             ] 
             <| UI.text "Ninguna imagen\nseleccionada"
 
-      Just source ->
+      Image_Url source ->
         UI.image 
           [ UI.width (px 300)
           , UI.height (px 169)
           ]
           { src = source
+          , description = "" 
+          }
+
+      Image_File file ->
+        UI.image 
+          [ UI.width (px 300)
+          , UI.height (px 169)
+          ]
+          { src = file.url
           , description = "" 
           }
 
@@ -473,38 +542,62 @@ view_form form = UI.row
   , view_side_column form
   ]
 
-dialog_config : Msg -> String -> Dialog.Config Msg
-dialog_config close_message text = 
-  { closeMessage = Nothing
-  , maskAttributes = []
-  , containerAttributes = 
-    [ Background.color Config.background_color
-    , Border.rounded 5
-    , Border.width 3
-    , Border.color Config.widget_border_color
-    , UI.centerX
-    , UI.centerY
-    , UI.padding 10
-    , UI.spacing 20
-    , UI.width (px 600)
-    ]
-  , headerAttributes = []
-  , bodyAttributes = []
-  , footerAttributes = []
-  , header = Just UI.none
-  , body = Just <| UI.column [ UI.width UI.fill ] [ UI.el [ UI.centerX ] (UI.text text) ]
-  , footer = Just <| Input.button
-    ([ UI.alignRight, UI.mouseOver [ Background.color Config.widget_hovered_background_color ] ] ++ Config.widget_common_attributes)
-    { onPress = Just close_message
-    , label = UI.text "Ok"
-    }
-  }
+dialog : AppState -> UI.Element Msg
+dialog state = case state of
+  State_Editing ->
+    UI.none
 
-view_dialog : Model -> Maybe (Dialog.Config Msg)
-view_dialog form = case form.app_state of
-  State_Editing -> Nothing
-  State_SendSucceeded -> Just <| dialog_config (Msg_CloseResponseDialog True) "Nueva entrada añadida correctamente."
-  State_SendFailed error_message -> Just <| dialog_config (Msg_CloseResponseDialog False) ("Error al añadir nueva entrada: " ++ error_message)
+  State_Notify args -> 
+    UI.el
+      [ Background.color Config.background_color
+      , Border.rounded 5
+      , Border.width 3
+      , Border.color Config.widget_border_color
+      , UI.centerX
+      , UI.centerY
+      , UI.paddingXY 10 30
+      , UI.spacing 20
+      , UI.width (px 600)
+      ]
+      <| UI.column [ UI.width UI.fill ] [ UI.el [ UI.centerX ] (UI.text args.message) ]
+
+  State_InputUrl args ->
+    UI.el
+      [ Background.color Config.background_color
+      , Border.rounded 5
+      , Border.width 3
+      , Border.color Config.widget_border_color
+      , UI.centerX
+      , UI.centerY
+      , UI.paddingXY 30 30
+      , UI.spacing 20
+      , UI.width (px 600)
+      , Utils.on_enter <| Msg_ImageUrlChosen args.url
+      ]
+      <| UI.column 
+        [ UI.width UI.fill
+        , UI.spacing 20
+        ] 
+        [ UI.el [] (UI.text "Elige una URL")
+        , input_box [ UI.width UI.fill ] args.url Msg_InputUrlChanged
+        ]
+
+dialog_background : AppState -> UI.Element Msg
+dialog_background state = case state of
+  State_Editing -> UI.none
+  _ -> 
+    let
+      reset_on_close = case state of 
+        State_Notify args -> args.reset_on_close
+        _ -> False
+    in 
+      UI.el
+      [ Events.onClick <| Msg_CloseResponseDialog reset_on_close
+      , Background.color (rgba 0 0 0 0.75)
+      , UI.width UI.fill
+      , UI.height UI.fill
+      ]
+      UI.none
 
 view : Model -> Document Msg
 view model =
@@ -515,7 +608,8 @@ view model =
         , UI.centerX
         , UI.centerY
         , Font.color (rgb 1 1 1) 
-        , UI.inFront <| Dialog.view <| view_dialog model
+        , UI.inFront <| dialog_background model.app_state
+        , UI.inFront <| dialog model.app_state
         ]
         <| Banner.with_banners (view_form model)
     ]

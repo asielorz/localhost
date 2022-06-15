@@ -58,15 +58,11 @@ view attributes message state = UI.row
   ([ UI.width UI.fill, UI.spacing 5 ] ++ attributes)
   [ UI.el [ UI.alignLeft ] <| UI.text (date state |> Maybe.map DateUtils.date_to_string |> Maybe.withDefault "")
   , UI.el 
-    [ UI.below <| if state.is_open then CalendarWidget.view state.calendar (message << Msg_CalendarChanged) else UI.none 
+    [ UI.below <| if state.is_open then UI.el [ UI.inFront <| CalendarWidget.view state.calendar (message << Msg_CalendarChanged) ] UI.none else UI.none 
     , UI.alignRight
     ] 
     <| Input.button []
       { onPress = Just <| message <| Msg_Open <| not state.is_open 
       , label = Fontawesome.fontawesome_text [] "\u{f073}" -- calendar-days
       }
-  , Input.button []
-    { onPress = Just <| message <| Msg_CalendarChanged <| CalendarWidget.Msg_DateCleared 
-    , label = Fontawesome.fontawesome_text [] "\u{f00d}" -- xmark
-    }
   ]

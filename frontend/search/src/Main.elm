@@ -2,10 +2,11 @@ module Main exposing (main)
 
 import Browser exposing (Document)
 import Browser.Navigation as Navigation
-import Element as UI exposing (rgb)
+import Element as UI exposing (px, rgb, rgba)
 import Element.Font as Font
 import Element.Input as Input
 import Element.Border as Border
+import Element.Events as Events
 import Element.Background as Background
 import Config
 import Entry exposing (Entry)
@@ -60,6 +61,9 @@ type alias Model =
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
 
+  -- dialog
+  , dialog_entry : Maybe Entry
+
   -- cached
   , all_authors : List String
   , all_categories : List String
@@ -95,6 +99,10 @@ type Msg
   | Msg_ReceivedWorks (Result Http.Error (List String))
   | Msg_ReceivedTags (Result Http.Error (List String))
 
+  -- Manage select entry dialog
+  | Msg_EntrySelected Entry
+  | Msg_CloseDialog
+
   -- Url messages from the application
   | Msg_UrlRequest UrlRequest
 
@@ -120,6 +128,8 @@ init key url =
       , saved_between_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
       , exceptional = False
       , currently_open_combo = Nothing
+
+      , dialog_entry = Nothing
 
       , all_authors = []
       , all_categories = []
@@ -269,6 +279,12 @@ update msg model = case msg of
       Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
+  Msg_EntrySelected entry ->
+    ({ model | dialog_entry = Just entry }, Cmd.none)
+
+  Msg_CloseDialog ->
+    ({ model | dialog_entry = Nothing }, Cmd.none)
+
   Msg_UrlRequest request -> case request of
     Browser.Internal url -> if url.path == "search"
       then (model, Navigation.pushUrl model.navigation_key (Url.toString url))
@@ -341,8 +357,39 @@ view_model model = UI.row
   , UI.height UI.fill
   ]
   [ view_search_column [ UI.width (UI.fillPortion 1), UI.height UI.fill, UI.centerX ] model
-  , UI.el [UI.width (UI.fillPortion 3), UI.height UI.fill, UI.centerX, UI.centerY, UI.padding 20] <| UI.column [ UI.centerX, UI.spacing 20 ] (List.map Entry.view model.entries)
+  , UI.el 
+    [ UI.width (UI.fillPortion 3)
+    , UI.height UI.fill
+    , UI.centerX
+    , UI.centerY
+    , UI.padding 20
+    ]
+     <| UI.column [ UI.centerX, UI.spacing 20 ] (List.map (Entry.view Msg_EntrySelected) model.entries)
   ]
+
+dialog_background : UI.Element Msg
+dialog_background = UI.el
+  [ Events.onClick Msg_CloseDialog 
+  , Background.color (rgba 0 0 0 0.75)
+  , UI.width UI.fill
+  , UI.height UI.fill
+  ]
+  UI.none
+
+view_selected_entry_dialog : Entry -> UI.Element msg
+view_selected_entry_dialog entry = UI.el
+  [ Background.color Config.background_color
+  , Border.rounded 5
+  , Border.width 3
+  , Border.color Config.widget_border_color
+  , UI.centerX
+  , UI.centerY
+  , UI.padding 10
+  , UI.spacing 20
+  , UI.width (px 700)
+  , UI.height (px 800)
+  ]
+  <| Entry.view_full entry
 
 view : Model -> Document Msg
 view model =
@@ -353,6 +400,10 @@ view model =
         , UI.centerX
         , UI.centerY
         , Font.color (rgb 1 1 1) 
+        , UI.inFront <| if model.dialog_entry == Nothing then UI.none else dialog_background
+        , UI.inFront <| case model.dialog_entry of 
+          Nothing -> UI.none 
+          Just entry -> view_selected_entry_dialog entry
         ] 
         <| Banner.with_banners (view_model model)
     ]

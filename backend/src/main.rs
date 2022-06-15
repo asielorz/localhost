@@ -209,13 +209,27 @@ fn parse_query(query_text : &str) -> Option<Query>
     return Some(query);
 }
 
+fn search_words_query_filter(query_string : &str, text : &str) -> bool
+{
+    let query_string_lowercase = query_string.to_lowercase();
+    let text_lowercase = text.to_lowercase();
+
+    for word in query_string_lowercase.split(" ") {
+        if text_lowercase.contains(word) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 fn passes_query_filter(query : &Query, entry : &Entry) -> bool
 {
     if !query.link.is_empty() && !entry.link.to_lowercase().contains(&query.link.to_lowercase()) {
         return false;
     }
     
-    if !query.title.is_empty() && !entry.title.to_lowercase().contains(&query.title.to_lowercase()) {
+    if !query.title.is_empty() && !search_words_query_filter(&query.title, &entry.title) {
         return false;
     }
 
@@ -227,7 +241,7 @@ fn passes_query_filter(query : &Query, entry : &Entry) -> bool
         return false;
     }
 
-    if !query.description.is_empty() && !entry.description.to_lowercase().contains(&query.description.to_lowercase()) {
+    if !query.description.is_empty() && !search_words_query_filter(&query.description, &entry.description) {
         return false;
     }
 
@@ -560,8 +574,8 @@ impl Requests
 async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::Error> 
 {
     match req.uri().query() {
-        Some(query_text) => { println!("Processing {} request at path {} with query {}", req.method(), req.uri().path(), query_text); }
-        None             => { println!("Processing {} request at path {}", req.method(), req.uri().path()); }
+        Some(query_text) => { println!("{} request at path {} with query {}", req.method(), req.uri().path(), query_text); }
+        None             => { println!("{} request at path {}", req.method(), req.uri().path()); }
     };
 
     match (req.method(), req.uri().path()) {

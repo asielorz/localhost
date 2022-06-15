@@ -1,9 +1,10 @@
-module Entry exposing (Entry, view, from_json)
+module Entry exposing (Entry, view, view_full, from_json)
 
 import Calendar
 import Element as UI exposing (px, rgb)
 import Element.Background as Background
 import Element.Border as Border
+import Element.Events as Events
 import Element.Input as Input
 import Element.Font as Font
 import Fontawesome exposing (fontawesome_text)
@@ -78,40 +79,71 @@ view_image entry = UI.el
     , url = entry.link
     }
 
-view_entry_data : Entry -> UI.Element msg
-view_entry_data entry = UI.column 
+title_row : Entry -> UI.Element msg
+title_row entry = UI.row [ Font.size 25, UI.width UI.fill ] 
+  [ UI.link [ UI.alignLeft ] { url = entry.link, label = UI.text entry.title }
+  , fontawesome_text [ UI.alignRight, Font.color <| if entry.exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4) ] "\u{f005}" --fa-star
+  ]
+
+author_dates_row : Entry -> UI.Element msg
+author_dates_row entry = UI.el [ Font.size 15 ] <| UI.text <| 
+  entry.author ++ " · " ++ (DateUtils.date_to_string entry.date_published) ++ " · " ++ (DateUtils.date_to_string entry.date_saved)
+
+view_tags_wrapped : Int -> Entry -> UI.Element msg
+view_tags_wrapped chunk_by entry = Utils.grid
+  { column_attributes = [ UI.spacing 5 ]
+  , row_attributes = [ UI.spacing 10 ]
+  , view_element = identity
+  , grid_elements = chunk chunk_by <| 
+    (List.map (view_extra_info ExtraInfo_Theme) entry.themes) ++ 
+    (List.map (view_extra_info ExtraInfo_Work) entry.works_mentioned) ++ 
+    (List.map (view_extra_info ExtraInfo_Tag) entry.tags)
+  }
+
+view_description : Entry -> UI.Element msg
+view_description entry = UI.paragraph
+  [ Font.size 15
+  , Font.color (rgb 0.7 0.7 0.7)
+  , Font.justify
+  ]
+  [ UI.text entry.description ]
+
+view_entry_data : (Entry -> msg) -> Entry -> UI.Element msg
+view_entry_data message entry = UI.column 
   [ UI.spacing 5
   , UI.alignTop
   , UI.width (px 800)
+  , UI.clipY
+  , UI.height (px 173)
+  , Events.onClick <| message entry
   ]
-  [ UI.row [ Font.size 25, UI.width UI.fill ] 
-     [ UI.link [ UI.alignLeft ] { url = entry.link, label = UI.text entry.title }
-     , fontawesome_text [ UI.alignRight, Font.color <| if entry.exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4) ] "\u{f005}" --fa-star
-     ]
-  , UI.el [ Font.size 15 ] <| UI.text <| entry.author ++ " · " ++ (DateUtils.date_to_string entry.date_published) ++ " · " ++ (DateUtils.date_to_string entry.date_saved)
-  , Utils.grid
-    { column_attributes = [ UI.spacing 5 ]
-    , row_attributes = [ UI.spacing 10 ]
-    , view_element = identity
-    , grid_elements = chunk 6 <| 
-      (List.map (view_extra_info ExtraInfo_Theme) entry.themes) ++ 
-      (List.map (view_extra_info ExtraInfo_Work) entry.works_mentioned) ++ 
-      (List.map (view_extra_info ExtraInfo_Tag) entry.tags)
-    }
-  , UI.paragraph
-    [ Font.size 15
-    , Font.color (rgb 0.7 0.7 0.7)
-    , Font.justify
-    ]
-    [ UI.text entry.description ]
+  [ title_row entry
+  , author_dates_row entry
+  , view_tags_wrapped 6 entry
+  , view_description entry
   ]
 
-view : Entry -> UI.Element msg
-view entry = UI.row 
+view : (Entry -> msg) -> Entry -> UI.Element msg
+view message entry = UI.row 
   [ UI.spacing 10
   ]
   [ view_image entry
-  , view_entry_data entry
+  , view_entry_data message entry
+  ]
+
+view_full : Entry -> UI.Element msg
+view_full entry = UI.column
+  [ UI.width UI.fill
+  , UI.spacing 5
+  ]
+  [ title_row entry
+  , author_dates_row entry
+  , UI.el [ UI.centerX, UI.paddingXY 0 20 ] <| view_image entry
+  , UI.el [ UI.centerX ] <| view_tags_wrapped 4 entry
+  -- Separated in two elements because if padding is in the same element as scrollbar, the padding pixels are considered
+  -- as part of the element for the clipping and so the content leaks into the padding when scrolling.
+  , UI.el [ UI.paddingEach { left = 20, top = 20, bottom = 20, right = 0 } ] 
+    <| UI.el [ UI.scrollbarY, UI.height (px 400), UI.paddingEach { left = 0, top = 0, bottom = 0, right = 20 } ] <| view_description entry
   ]
 
 -- from_json

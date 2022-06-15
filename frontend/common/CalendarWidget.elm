@@ -12,6 +12,7 @@ import DateUtils exposing (..)
 import Utils
 import List
 import Debug exposing (toString)
+import Config
 
 widget_background_color : UI.Color
 widget_background_color = (rgb 0.129 0.129 0.129)
@@ -150,7 +151,6 @@ view_calendar_day message selected_date maybe_date = case maybe_date of
 display_date : State -> Calendar.Date
 display_date state = Maybe.withDefault default_date <| Calendar.fromRawParts { month = state.displayed_month, year = state.displayed_year, day = 1 }
 
-
 view_calendar_body : State -> (Msg -> msg) -> UI.Element msg
 --view_calendar_body state message = UI.row [] []
 view_calendar_body state message = 
@@ -199,6 +199,18 @@ view_text_boxes state message = UI.row
     }
   ]
 
+clear_button : (Msg -> msg) -> UI.Element msg
+clear_button message = Input.button 
+  (Config.widget_common_attributes ++ 
+    [ UI.mouseOver [ Background.color Config.widget_hovered_background_color ]
+    , UI.alignRight
+    , UI.padding 5
+    , UI.moveLeft 7
+    ]) 
+  { onPress = Just <| message Msg_DateCleared
+  , label = fontawesome_text [] "\u{f1f8}" -- trash
+  }
+
 view : State -> (Msg -> msg) -> UI.Element msg
 view state message = UI.column 
   [ Border.color widget_border_color
@@ -207,5 +219,5 @@ view state message = UI.column
   ]
   [ view_first_row state message
   , view_calendar_body state message
-  , view_text_boxes state message
+  , UI.row [ UI.width UI.fill ] [ view_text_boxes state message, clear_button message ]
   ]

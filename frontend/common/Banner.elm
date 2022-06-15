@@ -20,8 +20,8 @@ header_banner = UI.row
     , UI.el [ Font.size 15, UI.moveDown 5 ] <| UI.text "There is no place like 127.0.0.1"
   ]
   , UI.row [ Font.size 20, UI.alignRight, UI.spacing 30, UI.paddingXY 30 0 ]
-    [ UI.link [] { url = "http://localhost:8080/search", label = UI.text "Search" }
-    , UI.link [] { url = "http://localhost:8080/new_entry", label = UI.text "Add entry" }
+    [ UI.link [] { url = "http://localhost:8080/search", label = UI.text "Buscar" }
+    , UI.link [] { url = "http://localhost:8080/new_entry", label = UI.text "Nueva entrada" }
     ]
   ]
 

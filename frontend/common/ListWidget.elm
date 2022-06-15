@@ -30,7 +30,7 @@ add_button attributes default message = Input.button (UI.alignRight :: attribute
 remove_button : List (UI.Attribute msg) -> Int -> (Msg a -> msg) -> UI.Element msg
 remove_button attributes index message = Input.button (UI.alignRight :: attributes) 
   { onPress = Just <| message <| Msg_Remove index
-  , label = UI.el [ Font.family [ fontawesome ] ] <| UI.text "\u{f1f8}"
+  , label = UI.el [ Font.family [ fontawesome ] ] <| UI.text "\u{f1f8}" -- trash
   }
 
 type alias Args a msg = 
