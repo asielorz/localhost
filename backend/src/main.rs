@@ -428,7 +428,7 @@ impl Requests
 
         {
             let state = STATE.lock().unwrap();
-            state.database.as_ref().unwrap().iterate(sql_query, |pairs| {
+            let query_result = state.database.as_ref().unwrap().iterate(sql_query, |pairs| {
                 let mut entry : Entry = Default::default();
                 for &(column, value) in pairs.iter() {
                     if let Some(x) = value {
@@ -463,7 +463,12 @@ impl Requests
                 }
                 served_entries.push(entry);
                 true
-            }).unwrap();
+            });
+
+            if let Err(err) = query_result {
+                println!("SQL query error: {}", err);
+                return Requests::internal_server_error_response();
+            }
         }
 
         return Requests::entries_as_http_response(&served_entries);
@@ -635,13 +640,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     connection.execute(
         "
         CREATE TABLE IF NOT EXISTS entries (
-            entry_id INT PRIMARY KEY, 
+            entry_id INT PRIMARY KEY AUTOINCREMENT NOT NULL, 
             link TEXT NOT NULL COLLATE NOCASE, 
             title TEXT NOT NULL COLLATE NOCASE,
             description TEXT NOT NULL COLLATE NOCASE,
             author TEXT NOT NULL,
             category TEXT NOT NULL,
-            themes TEXT NUT NULL,
+            themes TEXT NOT NULL,
             works_mentioned TEXT NOT NULL,
             tags TEXT NOT NULL,
             date_published DATE NOT NULL,
@@ -804,6 +809,15 @@ mod tests
         let url_params = "link=wikipedia&author=Pauline%20Kael&tags=Soulslike%7CGreat%20soundtrack%7CFemale%20protagonist";
         match url_to_sql_query(url_params) {
             Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE "%wikipedia%" AND author = "Pauline Kael" AND tags LIKE "%|Soulslike|%" AND tags LIKE "%|Great soundtrack|%" AND tags LIKE "%|Female protagonist|%" LIMIT 10"#),
+            None => unreachable!()
+        }
+    }
+
+    #[test]
+    fn test_url_to_sql_query_quotes_are_escaped() {
+        let url_params = "link=%22wikipedia%22";
+        match url_to_sql_query(url_params) {
+            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE "%\"wikipedia\"%" LIMIT 10"#),
             None => unreachable!()
         }
     }
