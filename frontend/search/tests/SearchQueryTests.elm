@@ -100,7 +100,7 @@ search_query__date : Test
 search_query__date = test
   "Dates are formatted as day-month-year, with month coded as a number from 1 to 12"
   (\_ -> Expect.equal
-    "?published_between_from=16-10-1997"
+    "?published_between_from=1997-10-16"
     (search_query { empty_query | published_between_from = Calendar.fromRawParts { day = 16, month = Time.Oct, year = 1997 } })
   )
 
@@ -108,7 +108,7 @@ search_query__date__single_digit_day : Test
 search_query__date__single_digit_day = test
   "Single digit days take a single byte"
   (\_ -> Expect.equal
-    "?published_between_until=7-10-1997"
+    "?published_between_until=1997-10-7"
     (search_query { empty_query | published_between_until = Calendar.fromRawParts { day = 7, month = Time.Oct, year = 1997 } })
   )
 
@@ -116,7 +116,7 @@ search_query__date__single_digit_month : Test
 search_query__date__single_digit_month = test
   "Single digit months take a single byte"
   (\_ -> Expect.equal
-    "?saved_between_from=7-3-1997"
+    "?saved_between_from=1997-3-7"
     (search_query { empty_query | saved_between_from = Calendar.fromRawParts { day = 7, month = Time.Mar, year = 1997 } })
   )
 
@@ -124,7 +124,7 @@ search_query__date__short_year : Test
 search_query__date__short_year = test
   "Years with less than 4 digits take only as much space as they need"
   (\_ -> Expect.equal
-    "?saved_between_until=7-3-33"
+    "?saved_between_until=33-3-7"
     (search_query { empty_query | saved_between_until = Calendar.fromRawParts { day = 7, month = Time.Mar, year = 33 } })
   )
 
@@ -204,10 +204,10 @@ search_ui_state_from_query__list_of_strings = test
 
 search_ui_state_from_query__good_date : Test
 search_ui_state_from_query__good_date = test
-  "A date is represented as day-month-year with the month as a number in the range [1-12]" 
+  "A date is represented as year-month-day with the month as a number in the range [1-12]" 
   (\_ -> Expect.equal
     (Just { empty_query | published_between_from = Calendar.fromRawParts { day = 11, month = Time.May, year = 2006 } })
-    (search_ui_state_from_query "published_between_from=11-5-2006")
+    (search_ui_state_from_query "published_between_from=2006-5-11")
   )
 
 search_ui_state_from_query__bad_date_missing_field : Test
@@ -215,7 +215,7 @@ search_ui_state_from_query__bad_date_missing_field = test
   "Parsing a date fails if one of the fields is missing" 
   (\_ -> Expect.equal
     Nothing
-    (search_ui_state_from_query "published_between_from=11-5")
+    (search_ui_state_from_query "published_between_from=5-11")
   )
 
 search_ui_state_from_query__bad_date_too_many_fields : Test
@@ -223,7 +223,7 @@ search_ui_state_from_query__bad_date_too_many_fields = test
   "Parsing a date fails if the parameter string has more than 3 fields" 
   (\_ -> Expect.equal
     Nothing
-    (search_ui_state_from_query "published_between_from=11-5-2006-47")
+    (search_ui_state_from_query "published_between_from=2006-5-11-47")
   )
 
 search_ui_state_from_query__bad_date_not_a_number : Test
@@ -231,7 +231,7 @@ search_ui_state_from_query__bad_date_not_a_number = test
   "Parsing a date fails if one of the fields contains something that cannot be converted to a number" 
   (\_ -> Expect.equal
     Nothing
-    (search_ui_state_from_query "published_between_from=11-May-2006")
+    (search_ui_state_from_query "published_between_from=2006-May-11")
   )
 
 search_ui_state_from_query__bad_date_month_out_of_range : Test
@@ -239,7 +239,7 @@ search_ui_state_from_query__bad_date_month_out_of_range = test
   "Parsing a date fails if the month is not in the range [1-12]" 
   (\_ -> Expect.equal
     Nothing
-    (search_ui_state_from_query "published_between_from=11-20-2006")
+    (search_ui_state_from_query "published_between_from=2006-20-11")
   )
 
 search_ui_state_from_query__bad_date_day_out_of_range : Test
@@ -247,7 +247,7 @@ search_ui_state_from_query__bad_date_day_out_of_range = test
   "Parsing a date fails if the day is not valid for the given month" 
   (\_ -> Expect.equal
     Nothing
-    (search_ui_state_from_query "published_between_from=40-5-2006")
+    (search_ui_state_from_query "published_between_from=2006-5-40")
   )
 
 search_ui_state_from_query__exceptional_true : Test

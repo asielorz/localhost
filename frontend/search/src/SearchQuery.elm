@@ -8,11 +8,11 @@ import Url
 
 date_to_string : Calendar.Date -> String
 date_to_string date = 
-  String.fromInt (Calendar.getDay date) ++
+  String.fromInt (Calendar.getYear date) ++
   "-" ++
   String.fromInt (DateUtils.month_to_int <| Calendar.getMonth date) ++
   "-" ++
-  String.fromInt (Calendar.getYear date)
+  String.fromInt (Calendar.getDay date)
 
 type alias QueryArgs =
   { link : String
@@ -83,11 +83,11 @@ parse_date_from_url parameter =
   case String.split "-" parameter of
     (day_str::month_str::year_str::[]) -> case String.toInt day_str of
       Nothing -> Nothing
-      Just day -> case String.toInt month_str of
+      Just year -> case String.toInt month_str of
         Nothing -> Nothing
         Just month -> case String.toInt year_str of
           Nothing -> Nothing
-          Just year -> if month >= 1 && month <= 12
+          Just day -> if month >= 1 && month <= 12
             then Calendar.fromRawParts { day = day, month = DateUtils.int_to_month month, year = year }
             else Nothing
     _ -> Nothing 

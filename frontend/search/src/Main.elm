@@ -22,6 +22,7 @@ import Url
 import Url exposing (Url)
 import Url.Parser exposing (query)
 import Banner
+import Fontawesome exposing (fontawesome_text)
 
 main : Program () Model Msg
 main = Browser.application 
@@ -88,6 +89,7 @@ type Msg
   | Msg_DatePublishedUntilChanged DatePicker.Msg
   | Msg_DateSavedFromChanged DatePicker.Msg
   | Msg_DateSavedUntilChanged DatePicker.Msg
+  | Msg_ExceptionalChanged Bool
   | Msg_OpenComboChanged (Maybe ComboId)
   | Msg_Search
 
@@ -139,11 +141,11 @@ init key url =
       }
 
     initial_commands = 
-      [ Http.get { url = "http://localhost:8080/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+      [ Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
       ]
   in case url.query of
     Nothing -> (default_model, Cmd.batch initial_commands)
@@ -177,7 +179,7 @@ init key url =
 -- query_string is only the parameters. The part that starts with '?'. It is assumed to start with '?'.
 texts_query_command : String -> Cmd Msg
 texts_query_command query_string = Http.get 
-  { url = "http://localhost:8080/texts" ++ query_string
+  { url = "http://localhost:8080/api/texts" ++ query_string
   , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
   }
 
@@ -221,6 +223,9 @@ update msg model = case msg of
 
   Msg_DateSavedUntilChanged date_picker_msg ->
     ({ model | saved_between_until = (DatePicker.update date_picker_msg model.saved_between_until) }, Cmd.none)
+
+  Msg_ExceptionalChanged new_exceptional ->
+    ({ model | exceptional = new_exceptional }, Cmd.none)
 
   Msg_OpenComboChanged new_open_combo ->
      ({ model | currently_open_combo = new_open_combo }, Cmd.none)
@@ -297,6 +302,15 @@ with_label label element = UI.column [ UI.width UI.fill, UI.spacing 5 ]
   , element
   ]
 
+exceptional_toggle_button : Bool -> UI.Element Msg
+exceptional_toggle_button is_exceptional = fontawesome_text
+  [ Font.size 30
+  , Font.color <| if is_exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4)
+  , Events.onClick <| Msg_ExceptionalChanged (not is_exceptional)
+  , UI.pointer
+  ]
+  "\u{f005}" --fa-star
+
 search_button: UI.Element Msg
 search_button = Input.button 
   (Config.widget_common_attributes ++
@@ -317,7 +331,7 @@ view_search_column attributes model = UI.column
     , Border.color Config.widget_border_color
     ]
   ) 
-  [ with_label "Link"       <| input_box [] model.link Msg_LinkChanged
+  [ with_label "Link"       <| UI.row [ UI.width UI.fill, UI.spacing 10 ] [ input_box [] model.link Msg_LinkChanged, exceptional_toggle_button model.exceptional ]
   , with_label "Título"       <| input_box [] model.title Msg_TitleChanged
   , with_label "Autor"        <| input_box_with_suggestions [] 
     { text = model.author

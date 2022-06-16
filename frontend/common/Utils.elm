@@ -1,9 +1,9 @@
 module Utils exposing (
-  add_if, enumerate, remove_at, replace_at, chunk, adjacent, has_duplicates,
+  add_if, enumerate, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
   toupper_first, 
   missing_to_be_a_multiple_of, 
   fail_if_nothing, 
-  grid, on_enter
+  grid, on_enter, set_alpha
   )
 
 import Json.Decode
@@ -55,6 +55,9 @@ has_duplicates l = l
   |> List.sort
   |> adjacent
   |> List.any (\(a, b) -> a == b)
+
+last : List a -> Maybe a
+last l = List.head <| List.drop ((List.length l) - 1) l
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on strings
@@ -119,3 +122,8 @@ on_enter msg =
             )
       )
     )
+
+set_alpha : Float -> UI.Color -> UI.Color
+set_alpha alpha color = 
+  let rgb = UI.toRgb color in
+  UI.fromRgb { rgb | alpha = alpha } 

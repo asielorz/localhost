@@ -2,3 +2,4 @@
 *.png
 backend/target/
 /backend/**/*html
+**/Cargo.lock

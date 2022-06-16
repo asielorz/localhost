@@ -326,3 +326,28 @@ has_duplicates__duplicates_do_not_need_to_be_adjacent = test
     (has_duplicates [4, 2, 0, 5, 7, 3, 4])
   )
   
+  -- last
+
+last__an_empty_list_has_no_last_element : Test
+last__an_empty_list_has_no_last_element = test
+  ("An empty list has no last element")
+  (\_ -> Expect.equal
+    Nothing
+    (last [])
+  )
+
+last__last_of_one_element : Test
+last__last_of_one_element = test
+  ("The last element of a list with a single element is that single element")
+  (\_ -> Expect.equal
+    (Just 5)
+    (last [ 5 ])
+  )
+
+last__last_of_several_elements : Test
+last__last_of_several_elements = test
+  ("The last element of a list with several elements is the last element in the list")
+  (\_ -> Expect.equal
+    (Just 8)
+    (last [ 5, 6, 3, 8 ])
+  )

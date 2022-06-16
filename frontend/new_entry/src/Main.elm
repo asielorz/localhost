@@ -26,6 +26,8 @@ import File.Select
 import Task
 import Base64
 import Bytes exposing (Bytes)
+import Fontawesome exposing (fontawesome_text)
+import Url
 
 main : Program () Model Msg
 main = Browser.document 
@@ -112,11 +114,11 @@ default_model =
 
 initial_commands : Cmd Msg
 initial_commands = Cmd.batch
-  [ Http.get { url = "http://localhost:8080/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+  [ Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
   ]
 
 type Msg 
@@ -146,6 +148,7 @@ type Msg
   | Msg_ImageUrlButtonClicked
   | Msg_InputUrlChanged String
   | Msg_ImageUrlChosen String
+  | Msg_ImageResetButtonClicked
 
   -- Server
   | Msg_ResponseToSendArrived (Result Http.Error String)
@@ -227,7 +230,7 @@ update msg model = case msg of
   -- Image
 
   Msg_ImageFileButtonClicked ->
-    (model, File.Select.file ["image/png","image/bmp"] Msg_ImageFileOpened)
+    (model, File.Select.file ["image/png","image/bmp","image/jpeg","image/gif"] Msg_ImageFileOpened)
 
   Msg_ImageFileOpened file ->
     (model
@@ -235,7 +238,18 @@ update msg model = case msg of
       |> Task.map 
         (\bytes -> case Base64.fromBytes bytes of 
           Nothing -> Msg_Noop
-          Just base64 -> Msg_ImageLoaded { path = File.name file, url = "data:image/png;base64," ++ base64, image = bytes }
+          Just base64 ->
+            let 
+              path = File.name file
+              extension = path |> String.split "." |> Utils.last
+            in
+              case extension of
+                Just "png" -> Msg_ImageLoaded { path = path, url = "data:image/png;base64," ++ base64, image = bytes }
+                Just "bmp" -> Msg_ImageLoaded { path = path, url = "data:image/bmp;base64," ++ base64, image = bytes }
+                Just "jpg" -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, image = bytes }
+                Just "jpeg" -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, image = bytes }
+                Just "gif" -> Msg_ImageLoaded { path = path, url = "data:image/gif;base64," ++ base64, image = bytes }
+                _ -> Msg_Noop
         )
       |> Task.perform identity
     )
@@ -251,6 +265,9 @@ update msg model = case msg of
 
   Msg_ImageUrlChosen new_url ->
     ({ model | image = Image_Url new_url, app_state = State_Editing }, Cmd.none)
+
+  Msg_ImageResetButtonClicked ->
+    ({ model | image = Image_None }, Cmd.none)
 
   -- Server
 
@@ -315,7 +332,7 @@ send_button_clicked model = case make_new_entry_form model of
   Ok form -> 
     (model
     , Http.post 
-      { url = "http://localhost:8080/texts"
+      { url = "http://localhost:8080/api/texts"
       , body = Http.jsonBody <| NewEntry.to_json form
       , expect = Http.expectString Msg_ResponseToSendArrived
       }
@@ -410,13 +427,13 @@ backup_combo_button backup currently_open_combo = UI.row [ UI.spacing 10, UI.wid
   :: backup_row backup
 
 exceptional_toggle_button : Bool -> UI.Element Msg
-exceptional_toggle_button is_exceptional = UI.el 
-  [ Font.family [ fontawesome ]
-  , Font.size 30
+exceptional_toggle_button is_exceptional = fontawesome_text
+  [ Font.size 30
   , Font.color <| if is_exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4)
   , Events.onClick <| Msg_ExceptionalChanged (not is_exceptional)
+  , UI.pointer
   ]
-  <| UI.text "\u{f005}" --fa-star
+  "\u{f005}" --fa-star
 
 link_row : Model -> UI.Element Msg
 link_row form = UI.row [ UI.spacing 10, UI.width UI.fill ] 
@@ -450,56 +467,67 @@ view_main_column form = UI.column
   ]
 
 view_image : EntryImage -> UI.Element Msg
-view_image image_source = UI.el 
-  [ UI.width (px 304)
-  , UI.height (px 173) 
-  , Border.color Config.widget_border_color
-  , Border.width 2
-  , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 6 ] 
-    [ Input.button []
-      { onPress = Just Msg_ImageFileButtonClicked
-      , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
-      }
-    , Input.button []
-      { onPress = Just Msg_ImageUrlButtonClicked
-      , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f0ac}")
-      }
-    ]
-  ]
-  <| case image_source of
-      Image_None -> 
-        UI.el
-          [ UI.width (px 300)
-          , UI.height (px 169)
-          , Background.color Config.widget_background_color
-          , UI.centerX
-          , UI.centerY
-          ]
-          <| UI.el 
-            [ UI.centerX
-            , UI.centerY
-            , Font.size 25
-            , Font.center
-            ] 
-            <| UI.text "Ninguna imagen\nseleccionada"
-
-      Image_Url source ->
-        UI.image 
-          [ UI.width (px 300)
-          , UI.height (px 169)
-          ]
-          { src = source
-          , description = "" 
+view_image image_source = 
+  let
+    button_attributes = Config.widget_common_attributes ++ 
+      [ Background.color <| Utils.set_alpha 0.5 Config.widget_background_color
+      , UI.mouseOver [ Background.color <| Utils.set_alpha 0.5 Config.widget_hovered_background_color ]
+      ]
+  in
+    UI.el 
+      [ UI.width (px 304)
+      , UI.height (px 173) 
+      , Border.color Config.widget_border_color
+      , Border.width 2
+      , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 6 ] 
+        [ Input.button []
+          { onPress = Just Msg_ImageFileButtonClicked
+          , label = fontawesome_text button_attributes "\u{f07c}" -- folder-open
           }
-
-      Image_File file ->
-        UI.image 
-          [ UI.width (px 300)
-          , UI.height (px 169)
-          ]
-          { src = file.url
-          , description = "" 
+        , Input.button []
+          { onPress = Just Msg_ImageUrlButtonClicked
+          , label = fontawesome_text button_attributes "\u{f0ac}" -- globe
           }
+        , Input.button []
+          { onPress = Just Msg_ImageResetButtonClicked
+          , label = fontawesome_text button_attributes "\u{f1f8}" -- trash
+          }
+        ]
+      ]
+      <| case image_source of
+          Image_None -> 
+            UI.el
+              [ UI.width (px 300)
+              , UI.height (px 169)
+              , Background.color Config.widget_background_color
+              , UI.centerX
+              , UI.centerY
+              ]
+              <| UI.el 
+                [ UI.centerX
+                , UI.centerY
+                , Font.size 25
+                , Font.center
+                ] 
+                <| UI.text "Ninguna imagen\nseleccionada"
+
+          -- The two cases below are using Background.image instead of UI.image because Background.image crops
+          -- the image to fit the size while UI.image scales it, and we don't want to show the image deformed.
+          Image_Url source ->
+            UI.el 
+              [ UI.width (px 300)
+              , UI.height (px 169)
+              , Background.image source
+              ]
+              UI.none
+
+          Image_File file ->
+            UI.el 
+              [ UI.width (px 300)
+              , UI.height (px 169)
+              , Background.image file.url
+              ]
+              UI.none
 
 view_category : String -> List String -> Maybe ComboId -> UI.Element Msg
 view_category category all_categories curently_open_combo = UI.column 
@@ -580,7 +608,13 @@ dialog state = case state of
         , UI.spacing 20
         ] 
         [ UI.el [] (UI.text "Elige una URL")
-        , input_box [ UI.width UI.fill ] args.url Msg_InputUrlChanged
+        , UI.row [ UI.width UI.fill, UI.spacing 10 ] 
+          [ input_box [ UI.width UI.fill ] args.url Msg_InputUrlChanged
+          , Input.button (UI.mouseOver [ Background.color Config.widget_hovered_background_color ] :: Config.widget_common_attributes)
+            { onPress = if Url.fromString args.url == Nothing then Just <| Msg_CloseResponseDialog False else Just <| Msg_ImageUrlChosen args.url
+            , label = fontawesome_text [] "\u{f00c}" -- check
+            }
+          ]
         ]
 
 dialog_background : AppState -> UI.Element Msg

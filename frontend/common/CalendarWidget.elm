@@ -152,7 +152,6 @@ display_date : State -> Calendar.Date
 display_date state = Maybe.withDefault default_date <| Calendar.fromRawParts { month = state.displayed_month, year = state.displayed_year, day = 1 }
 
 view_calendar_body : State -> (Msg -> msg) -> UI.Element msg
---view_calendar_body state message = UI.row [] []
 view_calendar_body state message = 
   let dates = Utils.chunk 7 <| pad_dates <| Calendar.getDatesInMonth <| display_date state in
   UI.column [ UI.centerX ] <| List.map (\row_dates -> UI.row [] <| List.map (view_calendar_day message state.date) row_dates) dates 
