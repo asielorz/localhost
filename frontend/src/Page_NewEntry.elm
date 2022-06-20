@@ -1,6 +1,5 @@
-module Main exposing (main)
+module Page_NewEntry exposing (Model, Msg, init, update, view, title)
 
-import Browser exposing (Document)
 import Element as UI exposing (rgb, px, rgba)
 import Element.Background as Background
 import Element.Input as Input
@@ -19,7 +18,6 @@ import Config
 import Http
 import Json.Decode
 import InputBox exposing (..)
-import Banner
 import Utils
 import File exposing (File)
 import File.Select
@@ -29,13 +27,11 @@ import Bytes exposing (Bytes)
 import Fontawesome exposing (fontawesome_text)
 import Url
 
-main : Program () Model Msg
-main = Browser.document 
-  { init = \() -> (default_model, initial_commands)
-  , update = update
-  , view = view
-  , subscriptions = \_ -> Sub.none
-  }
+init : (Model, Cmd Msg)
+init = (default_model, initial_commands)
+
+title : String
+title = "Nueva entrada"
 
 type EntryType 
   = Text { pages : Int }
@@ -668,18 +664,15 @@ dialog_background state = case state of
       ]
       UI.none
 
-view : Model -> Document Msg
-view model =
-  { title = "Nueva entrada | localhost"
-  , body = 
-    [ UI.layout 
-        [ Background.color Config.background_color
-        , UI.centerX
-        , UI.centerY
-        , Font.color (rgb 1 1 1) 
-        , UI.inFront <| dialog_background model.app_state
-        , UI.inFront <| dialog model.app_state
-        ]
-        <| Banner.with_banners (view_form model)
+view : Model -> UI.Element Msg
+view model = UI.el 
+  [ UI.inFront <| dialog_background model.app_state
+  , UI.inFront <| dialog model.app_state
+  , UI.width UI.fill
+  , UI.height UI.fill
+  ]
+  <| UI.el
+    [ UI.width UI.fill
+    , UI.alignTop
     ]
-  }
+    <| view_form model

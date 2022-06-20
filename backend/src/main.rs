@@ -769,9 +769,8 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
     match (req.method(), req.uri().path()) {
         (&Method::OPTIONS, _) => Requests::options(),
 
-        (&Method::GET, "/new_entry") => Requests::serve_page("pages/new_entry.html"),
-        (&Method::GET, "/search") => Requests::serve_page("pages/search.html"),
         (&Method::GET, "/favicon.ico") => Requests::serve_file("pages/favicon.ico", "image/vnd.microsoft.icon"),
+        (&Method::GET, path) if !path.starts_with("/api/")  => Requests::serve_page("pages/index.html"),
 
         (&Method::GET, "/api/texts") => Requests::get_texts(req),
         (&Method::GET, path) if is_single_entry_path(path) => Requests::get_single_text(req),

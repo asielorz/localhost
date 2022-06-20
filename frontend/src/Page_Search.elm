@@ -1,6 +1,5 @@
-module Main exposing (main)
+module Page_Search exposing (Model, Msg, title, init, update, view, navigate_to)
 
-import Browser exposing (Document)
 import Browser.Navigation as Navigation
 import Element as UI exposing (px, rgb, rgba)
 import Element.Font as Font
@@ -17,22 +16,9 @@ import ListWidget
 import DatePicker
 import Time
 import SearchQuery
-import Browser exposing (UrlRequest)
-import Url
 import Url exposing (Url)
 import Url.Parser exposing (query)
-import Banner
 import Fontawesome exposing (fontawesome_text)
-
-main : Program () Model Msg
-main = Browser.application 
-  { init = \() url key -> init key url
-  , update = update
-  , view = view
-  , subscriptions = \_ -> Sub.none
-  , onUrlRequest = Msg_UrlRequest
-  , onUrlChange = always Msg_Noop
-  }
 
 type ComboId
   = ComboId_Author
@@ -42,9 +28,7 @@ type ComboId
   | ComboId_Tags Int
 
 type alias Model = 
-  { navigation_key : Navigation.Key
-    
-  , entries : List Entry
+  { entries : List Entry
 
   -- search
   , link : String
@@ -105,16 +89,14 @@ type Msg
   | Msg_EntrySelected Entry
   | Msg_CloseDialog
 
-  -- Url messages from the application
-  | Msg_UrlRequest UrlRequest
+title : String
+title = "Buscar"
 
-init : Navigation.Key -> Url -> (Model, Cmd Msg)
-init key url = 
+init : (Model, Cmd Msg)
+init = 
   let
     default_model =
-      { navigation_key = key
-        
-      , entries = []
+      { entries = []
 
       , link = ""
       , title = ""
@@ -147,14 +129,18 @@ init key url =
       , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
       , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
       ]
-  in case url.query of
-    Nothing -> (default_model, Cmd.batch initial_commands)
+  in
+    (default_model, Cmd.batch initial_commands)
+
+navigate_to : Url -> Model -> (Model, Cmd Msg)
+navigate_to url model = case url.query of
+    Nothing -> (model, Cmd.none)
     Just query_string -> case SearchQuery.search_ui_state_from_query query_string of
-      Nothing -> (default_model, Cmd.batch initial_commands)
+      Nothing -> (model, Cmd.none)
       Just query -> 
         let 
-          model = 
-            { default_model
+          updated_model = 
+            { model
             | link = query.link
             , title = query.title
             , author = query.author
@@ -163,18 +149,14 @@ init key url =
             , works_mentioned = query.works_mentioned
             , themes = query.themes
             , tags = query.tags
-            , published_between_from = DatePicker.set_date query.published_between_from default_model.published_between_from
-            , published_between_until = DatePicker.set_date query.published_between_until default_model.published_between_until
-            , saved_between_from = DatePicker.set_date query.saved_between_from default_model.saved_between_from
-            , saved_between_until = DatePicker.set_date query.saved_between_until default_model.saved_between_until
+            , published_between_from = DatePicker.set_date query.published_between_from model.published_between_from
+            , published_between_until = DatePicker.set_date query.published_between_until model.published_between_until
+            , saved_between_from = DatePicker.set_date query.saved_between_from model.saved_between_from
+            , saved_between_until = DatePicker.set_date query.saved_between_until model.saved_between_until
             , exceptional = query.exceptional
             }
-
-          commands =
-            texts_query_command ("?" ++ query_string)
-            :: initial_commands
         in
-          (model, Cmd.batch commands)
+          (updated_model, texts_query_command ("?" ++ query_string))
 
 -- query_string is only the parameters. The part that starts with '?'. It is assumed to start with '?'.
 texts_query_command : String -> Cmd Msg
@@ -183,8 +165,8 @@ texts_query_command query_string = Http.get
   , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
   }
 
-update : Msg -> Model -> (Model, Cmd Msg)
-update msg model = case msg of
+update : Navigation.Key -> Msg -> Model -> (Model, Cmd Msg)
+update navigation_key msg model = case msg of
   Msg_Noop ->
     (model, Cmd.none)
 
@@ -248,11 +230,10 @@ update msg model = case msg of
         , exceptional = model.exceptional
         }
     in
-      (model
-      , Cmd.batch
-        [ Navigation.pushUrl model.navigation_key ("/search" ++ query)
-        , texts_query_command query
-        ]
+      ( model
+      , if String.isEmpty query
+        then Cmd.batch [ Navigation.pushUrl navigation_key ("/search" ++ query), texts_query_command query ] -- Special case for when search is pressed with no args.
+        else Navigation.pushUrl navigation_key ("/search" ++ query)
     )
 
   Msg_ReceivedSearchResults new_results -> case new_results of
@@ -289,12 +270,6 @@ update msg model = case msg of
 
   Msg_CloseDialog ->
     ({ model | dialog_entry = Nothing }, Cmd.none)
-
-  Msg_UrlRequest request -> case request of
-    Browser.Internal url -> if url.path == "search"
-      then (model, Navigation.pushUrl model.navigation_key (Url.toString url))
-      else (model, Navigation.load (Url.toString url))
-    Browser.External link -> (model, Navigation.load link)
 
 with_label : String -> UI.Element msg -> UI.Element msg
 with_label label element = UI.column [ UI.width UI.fill, UI.spacing 5 ]
@@ -405,20 +380,15 @@ view_selected_entry_dialog entry = UI.el
   ]
   <| Entry.view_full entry
 
-view : Model -> Document Msg
-view model =
-  { title = "Buscar | localhost"
-  , body = 
-    [ UI.layout 
-        [ Background.color Config.background_color
-        , UI.centerX
-        , UI.centerY
-        , Font.color (rgb 1 1 1) 
-        , UI.inFront <| if model.dialog_entry == Nothing then UI.none else dialog_background
-        , UI.inFront <| case model.dialog_entry of 
-          Nothing -> UI.none 
-          Just entry -> view_selected_entry_dialog entry
-        ] 
-        <| Banner.with_banners (view_model model)
-    ]
-  }
+view : Model -> UI.Element Msg
+view model = UI.el 
+  [ UI.width UI.fill
+  , UI.height UI.fill
+  , UI.centerX
+  , UI.centerY
+  , UI.inFront <| if model.dialog_entry == Nothing then UI.none else dialog_background
+  , UI.inFront <| case model.dialog_entry of 
+    Nothing -> UI.none 
+    Just entry -> view_selected_entry_dialog entry
+  ] 
+  <| view_model model
