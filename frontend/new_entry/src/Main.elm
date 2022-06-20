@@ -60,7 +60,7 @@ type AppState
 type EntryImage
   = Image_None
   | Image_Url String
-  | Image_File { path : String, url : String, image : Bytes }
+  | Image_File { path : String, url : String, content_type : String, bytes : Bytes }
 
 type alias Model = 
   { link : String
@@ -144,14 +144,14 @@ type Msg
   -- Image
   | Msg_ImageFileButtonClicked
   | Msg_ImageFileOpened File
-  | Msg_ImageLoaded { path : String, url : String, image : Bytes }
+  | Msg_ImageLoaded { path : String, url : String, content_type : String, bytes : Bytes }
   | Msg_ImageUrlButtonClicked
   | Msg_InputUrlChanged String
   | Msg_ImageUrlChosen String
   | Msg_ImageResetButtonClicked
 
   -- Server
-  | Msg_ResponseToSendArrived (Result Http.Error String)
+  | Msg_ResponseToSendArrived (Result Http.Error ())
   | Msg_ReceivedCategories (Result Http.Error (List String))
   | Msg_ReceivedAuthors (Result Http.Error (List String))
   | Msg_ReceivedThemes (Result Http.Error (List String))
@@ -244,11 +244,11 @@ update msg model = case msg of
               extension = path |> String.split "." |> Utils.last
             in
               case extension of
-                Just "png" -> Msg_ImageLoaded { path = path, url = "data:image/png;base64," ++ base64, image = bytes }
-                Just "bmp" -> Msg_ImageLoaded { path = path, url = "data:image/bmp;base64," ++ base64, image = bytes }
-                Just "jpg" -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, image = bytes }
-                Just "jpeg" -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, image = bytes }
-                Just "gif" -> Msg_ImageLoaded { path = path, url = "data:image/gif;base64," ++ base64, image = bytes }
+                Just "png"  -> Msg_ImageLoaded { path = path, url = "data:image/png;base64,"  ++ base64, content_type = "image/png",  bytes = bytes }
+                Just "bmp"  -> Msg_ImageLoaded { path = path, url = "data:image/bmp;base64,"  ++ base64, content_type = "image/bmp",  bytes = bytes }
+                Just "jpg"  -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, content_type = "image/jpeg", bytes = bytes }
+                Just "jpeg" -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, content_type = "image/jpeg", bytes = bytes }
+                Just "gif"  -> Msg_ImageLoaded { path = path, url = "data:image/gif;base64,"  ++ base64, content_type = "image/gif",  bytes = bytes }
                 _ -> Msg_Noop
         )
       |> Task.perform identity
@@ -327,16 +327,50 @@ make_new_entry_form model =
     Nothing -> Ok form
     Just error -> Err error
 
+-- Http.post 
+--   { url = "http://localhost:8080/api/texts"
+--   , body = Http.jsonBody <| NewEntry.to_json form
+--   , expect = Http.expectString Msg_ResponseToSendArrived
+--   }
+
 send_button_clicked : Model -> (Model, Cmd Msg)
 send_button_clicked model = case make_new_entry_form model of
   Ok form -> 
-    (model
-    , Http.post 
-      { url = "http://localhost:8080/api/texts"
-      , body = Http.jsonBody <| NewEntry.to_json form
-      , expect = Http.expectString Msg_ResponseToSendArrived
-      }
-    )
+    let 
+      resolve toResult response =
+        case response of
+          Http.BadUrl_ url -> Err (Http.BadUrl url)
+          Http.Timeout_ -> Err Http.Timeout
+          Http.NetworkError_ -> Err Http.NetworkError
+          Http.BadStatus_ metadata _ -> Err (Http.BadStatus metadata.statusCode)
+          Http.GoodStatus_ _ body -> Result.mapError Http.BadBody (toResult body)
+
+      task = Http.task 
+        { method = "POST"
+        , url = "http://localhost:8080/api/texts"
+        , headers = []
+        , body = Http.jsonBody <| NewEntry.to_json form
+        , resolver = Http.stringResolver <| resolve
+          (\body -> Json.Decode.decodeString (Json.Decode.field "id" Json.Decode.int) body |> Result.mapError (\err -> Json.Decode.errorToString err))
+        , timeout = Nothing
+        }
+        |> Task.andThen 
+          (
+            \id -> case model.image of
+                Image_File image -> Http.task
+                  { method = "PUT"
+                  , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+                  , headers = []
+                  , body = Http.bytesBody image.content_type image.bytes
+                  , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+                  , timeout = Nothing
+                  }
+                _ -> Task.succeed ()
+          )
+    in
+      (model
+      , Task.attempt Msg_ResponseToSendArrived task 
+      )
 
   Err err -> 
     ({model | app_state = notify_error <| "El formulario no es válido:\n" ++ err}

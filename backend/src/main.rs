@@ -229,8 +229,8 @@ fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>)>
                         params.push(format_as_sql_date(parse_date_query_argument(key_value[1])?));
                     }
                     "exceptional" => {
-                        result += "exceptional = ?"; 
-                        params.push(String::from(format_as_sql_bool(key_value[1] == "true")));
+                        result += "exceptional = ";
+                        result += if key_value[1] == "true" { "TRUE" } else { "FALSE" }; 
                     }
                     _ => { return None; }
                 }
@@ -314,15 +314,6 @@ fn read_sql_date(text : &str) -> Option<Date>
     return parse_date_query_argument(text);
 }
 
-fn format_as_sql_bool(b : bool) -> &'static str
-{
-    if b {
-        return "TRUE";
-    } else {
-        return "FALSE";
-    }
-}
-
 fn run_sql<Params : rusqlite::Params>(database : &rusqlite::Connection, command : &str, params : Params) -> rusqlite::Result<usize>
 {
     let result = database.execute(command, params);
@@ -373,6 +364,35 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql
     return Ok(found_entries);
 }
 
+fn is_single_entry_path(path : &str) -> bool {
+    if let Some(p) = path.strip_prefix("/api/texts/") {
+        return p.parse::<i64>().is_ok();
+    }
+    return false;
+}
+
+fn is_entry_image_path(path : &str) -> bool {
+    if let Some(p) = path.strip_prefix("/api/texts/") {
+        let parts = p.split("/").collect::<Vec<_>>();
+        if parts.len() != 2 {
+            return false;
+        }
+        
+        return parts[0].parse::<i64>().is_ok() && parts[1] == "image";
+    }
+
+    return false;
+}
+
+fn get_entry_id_from_path(path : &str) -> i64 {
+    if let Some(p) = path.strip_prefix("/api/texts/") {
+        let parts = p.split("/").collect::<Vec<_>>();
+        return parts[0].parse::<i64>().unwrap();
+    }
+
+    unreachable!();
+}
+
 lazy_static! 
 {
     static ref STATE: Mutex<State> = Mutex::new(State::new());
@@ -389,7 +409,7 @@ impl Requests
         println!("Options!");
         return Response::builder()
             .status(StatusCode::NO_CONTENT)
-            .header("Allow", "OPTIONS, GET, POST")
+            .header("Allow", "OPTIONS, GET, PUT, POST")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .body(Body::from(""))
@@ -494,6 +514,110 @@ impl Requests
         }
     }
 
+    fn get_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+
+        let mut statement = match database.prepare("SELECT image FROM entries WHERE entry_id = ?") {
+            Ok(s) => s,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+        let mut rows = match statement.query([entry_id]) {
+            Ok(r) => r,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+        
+        let first = match rows.next() {
+            Ok(r) => r,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+
+        if let Some(found_row) = first {
+            let blob_ref = match found_row.get_ref(0) {
+                Ok(r) => r,
+                Err(_) => { return Requests::internal_server_error_response(); }
+            };
+
+            let maybe_blob = match blob_ref.as_blob_or_null() {
+                Ok(r) => r,
+                Err(_) => { return Requests::internal_server_error_response(); }
+            };
+
+            if let Some(blob) = maybe_blob {
+                let copy = Vec::from(blob);
+
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Headers", "*")
+                    .header("Content-Type", "image/png")
+                    .body(Body::from(copy))
+                    .or_else(|_| Requests::internal_server_error_response())
+            } else {
+                return Requests::not_found_404_response();
+            }
+        } else {
+            return Requests::not_found_404_response();
+        }
+    }
+
+    async fn put_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        match req.headers().get("Content-Type") {
+            None => { return Requests::bad_request_response("Missing content type hader"); }
+            Some(value) => match value.to_str().unwrap() {
+                // TO DO: Save image type.
+                "image/png" => (),
+                "image/jpeg" => (),
+                "image/gif" => (),
+                "image/bmp" => (),
+                other => { return Requests::bad_request_response(&format!("Unsuported content type: {}", other)); }
+            }
+        };
+
+        let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+        match database.execute(
+            "
+            UPDATE entries
+            SET image = ?
+            WHERE employee_id = ?
+            ",
+            rusqlite::params![rusqlite::blob::ZeroBlob(whole_body.len() as i32), entry_id]
+        ) {
+            // No values where modified.
+            Ok(0) => { return Requests::not_found_404_response(); }
+            // Something went wrong within the database.
+            Err(_) => { return Requests::internal_server_error_response(); }
+            // Everything went fine.
+            Ok(_) => ()
+        };
+
+        let mut blob = match database.blob_open(rusqlite::MAIN_DB, "entries", "image", entry_id, false) {
+            Ok(b) => b,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+
+        if let Err(_) = blob.write_at(&whole_body, 0) {
+            return Requests::internal_server_error_response();
+        };
+
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"success":true,"link":"http://localhost:8080/api/texts/{}/image"}}"#, entry_id)))
+            .or_else(|_| Requests::internal_server_error_response())
+    }
+
     fn strings_as_http_response(strings : &Vec<String>) -> Result<Response<Body>, hyper::Error>
     {
         if let Ok(json) = serde_json::to_string(strings) {
@@ -562,7 +686,7 @@ impl Requests
                         INSERT INTO entries (link, title, description, author, category, themes, works_mentioned, tags, date_published, date_saved, exceptional)
                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
                         ",
-                        [ &form.link
+                        rusqlite::params![ &form.link
                         , &form.title
                         , &form.description
                         , &form.author
@@ -572,7 +696,7 @@ impl Requests
                         , &format_as_sql_array(&form.tags)
                         , &format_as_sql_date(form.date_published)
                         , &format_as_sql_date(today())
-                        , format_as_sql_bool(form.exceptional)
+                        , form.exceptional
                         ]
                     );
 
@@ -650,7 +774,9 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         (&Method::GET, "/favicon.ico") => Requests::serve_file("pages/favicon.ico", "image/vnd.microsoft.icon"),
 
         (&Method::GET, "/api/texts") => Requests::get_texts(req),
-        (&Method::GET, path) if path.starts_with("/api/texts/") => Requests::get_single_text(req),
+        (&Method::GET, path) if is_single_entry_path(path) => Requests::get_single_text(req),
+        (&Method::GET, path) if is_entry_image_path(path) => Requests::get_entry_image(req),
+        (&Method::PUT, path) if is_entry_image_path(path) => Requests::put_entry_image(req).await,
         (&Method::POST, "/api/texts") => Requests::post_texts(req).await,
 
         (&Method::GET, "/api/categories") => Requests::get_categories(),
@@ -695,7 +821,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     connection.execute("CREATE TABLE IF NOT EXISTS themes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
     connection.execute("CREATE TABLE IF NOT EXISTS works (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
     connection.execute("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
-
 
     STATE.lock().unwrap().database = Some(connection);
 
@@ -854,8 +979,8 @@ mod tests
         let url_params = "exceptional=true";
         match url_to_sql_query(url_params) {
             Some((query, params)) => { 
-                assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = ? LIMIT 10"#);
-                assert_eq!(params, ["TRUE"]);
+                assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = TRUE LIMIT 10"#);
+                assert_eq!(params.is_empty(), true);
             }
             None => unreachable!()
         }
@@ -866,8 +991,8 @@ mod tests
         let url_params = "exceptional=false";
         match url_to_sql_query(url_params) {
             Some((query, params)) => { 
-                assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = ? LIMIT 10"#);
-                assert_eq!(params, ["FALSE"]);
+                assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = FALSE LIMIT 10"#);
+                assert_eq!(params.is_empty(), true);
             }
             None => unreachable!()
         }
@@ -941,5 +1066,35 @@ mod tests
         let strings = read_from_sql_array("|Iruña|Bilbo|Gasteiz|Donostia|");
         let expected_output = [ String::from("Iruña"), String::from("Bilbo"), String::from("Gasteiz"), String::from("Donostia") ];
         assert_eq!(strings, expected_output);
+    }
+
+    // is_single_entry_path
+
+    #[test]
+    fn is_single_entry_path_correct_paths() {
+        assert_eq!(is_single_entry_path("/api/texts/1"), true);
+        assert_eq!(is_single_entry_path("/api/texts/215"), true);
+        assert_eq!(is_single_entry_path("/api/texts/1845348"), true);
+    }
+
+    #[test]
+    fn is_single_entry_path_not_starting_with_correct_prefix() {
+        assert_eq!(is_single_entry_path("/texts/1"), false);
+        assert_eq!(is_single_entry_path("/api/text/215"), false);
+        assert_eq!(is_single_entry_path("/foo/bar/baz/1845348"), false);
+    }
+
+    #[test]
+    fn is_single_entry_path_not_a_number() {
+        assert_eq!(is_single_entry_path("/api/texts/hello"), false);
+        assert_eq!(is_single_entry_path("/api/texts/five"), false);
+        assert_eq!(is_single_entry_path("/api/texts/2.25"), false);
+    }
+
+    #[test]
+    fn is_single_entry_path_more_subpaths() {
+        assert_eq!(is_single_entry_path("/api/texts/1/more_stuff"), false);
+        assert_eq!(is_single_entry_path("/api/texts/215/image"), false);
+        assert_eq!(is_single_entry_path("/api/texts/1845348/backup"), false);
     }
 }
