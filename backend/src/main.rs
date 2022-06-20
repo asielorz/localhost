@@ -10,7 +10,7 @@ use chrono::Datelike;
 use percent_encoding::percent_decode_str;
 use std::cmp::{Ord, Ordering};
 use std::env;
-use sqlite;
+use rusqlite;
 
 #[macro_use]
 extern crate lazy_static;
@@ -96,7 +96,7 @@ struct NewEntryForm {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct Entry {
-    id : i32,
+    id : i64,
     link : String,
     title : String,
     description : String,
@@ -151,9 +151,10 @@ fn parse_date_query_argument(query_argument : &str) -> Option<Date>
     });
 }
 
-fn url_to_sql_query(query_text : &str) -> Option<String>
+fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>)>
 {
     let mut result = String::from("SELECT * FROM entries WHERE ");
+    let mut params : Vec<String> = Vec::new();
 
     if let Ok(decoded_query_text) = percent_decode_str(query_text).decode_utf8() {
         for query_argument in decoded_query_text.split("&")
@@ -162,30 +163,29 @@ fn url_to_sql_query(query_text : &str) -> Option<String>
             if key_value.len() == 2 {
                 match key_value[0] {
                     "link" => {
-                        result += "link LIKE "; 
-                        result += &escape_quotes_for_contains(key_value[1]);
+                        result += "link LIKE ?";
+                        params.push(sql_arg_string_contains(key_value[1]));
                     }
                     "title" => {
-                        result += "title LIKE "; 
-                        result += &escape_quotes_for_contains(key_value[1]);
+                        result += "title LIKE ?";
+                        params.push(sql_arg_string_contains(key_value[1]));
                     }
                     "author" => {
-                        result += "author = "; 
-                        result += &escape_quotes(key_value[1]);
+                        result += "author = ?";
+                        params.push(String::from(key_value[1]));
                     }
                     "description" => {
-                        result += "description LIKE "; 
-                        result += &escape_quotes_for_contains(key_value[1]);
+                        result += "description LIKE ?";
+                        params.push(sql_arg_string_contains(key_value[1]));
                     }
                     "category" => {
-                        result += "category = "; 
-                        result += &escape_quotes(key_value[1]);
+                        result += "category = ?";
+                        params.push(String::from(key_value[1]));
                     }
                     "works_mentioned" => {
                         for s in key_value[1].split("|") {
-                            result += "works_mentioned LIKE "; 
-                            result += &escape_quotes_for_contains_in_list(s);
-                            result += " AND ";
+                            result += "works_mentioned LIKE ? AND "; 
+                            params.push(sql_arg_list_contains(s));
                         }
                         // Remove last " AND "
                         for _ in 0..5 {
@@ -194,9 +194,8 @@ fn url_to_sql_query(query_text : &str) -> Option<String>
                     }
                     "themes" => {
                         for s in key_value[1].split("|") {
-                            result += "themes LIKE "; 
-                            result += &escape_quotes_for_contains_in_list(s);
-                            result += " AND ";
+                            result += "themes LIKE ? AND ";
+                            params.push(sql_arg_list_contains(s));
                         }
                         // Remove last " AND "
                         for _ in 0..5 {
@@ -205,9 +204,8 @@ fn url_to_sql_query(query_text : &str) -> Option<String>
                     }
                     "tags" => {
                         for s in key_value[1].split("|") {
-                            result += "tags LIKE "; 
-                            result += &escape_quotes_for_contains_in_list(s);
-                            result += " AND ";
+                            result += "tags LIKE ? AND ";
+                            params.push(sql_arg_list_contains(s));
                         }
                         // Remove last " AND "
                         for _ in 0..5 {
@@ -215,28 +213,24 @@ fn url_to_sql_query(query_text : &str) -> Option<String>
                         }
                     }
                     "published_between_from" => {
-                        result += "date_published >= DATE(";
-                        result += &format_as_sql_date(parse_date_query_argument(key_value[1])?);
-                        result += ")";
+                        result += "date_published >= DATE(?)";
+                        params.push(format_as_sql_date(parse_date_query_argument(key_value[1])?));
                     }
                     "published_between_until" => {
-                        result += "date_published <= DATE(";
-                        result += &format_as_sql_date(parse_date_query_argument(key_value[1])?);
-                        result += ")";
+                        result += "date_published <= DATE(?)";
+                        params.push(format_as_sql_date(parse_date_query_argument(key_value[1])?));
                     }
                     "saved_between_from" => {
-                        result += "date_saved >= DATE(";
-                        result += &format_as_sql_date(parse_date_query_argument(key_value[1])?);
-                        result += ")";
+                        result += "date_saved >= DATE(?)";
+                        params.push(format_as_sql_date(parse_date_query_argument(key_value[1])?));
                     }
                     "saved_between_until" => {
-                        result += "date_saved <= DATE(";
-                        result += &format_as_sql_date(parse_date_query_argument(key_value[1])?);
-                        result += ")";
+                        result += "date_saved <= DATE(?)";
+                        params.push(format_as_sql_date(parse_date_query_argument(key_value[1])?));
                     }
                     "exceptional" => {
-                        result += "exceptional = "; 
-                        result += &format_as_sql_bool(key_value[1] == "true");
+                        result += "exceptional = ?"; 
+                        params.push(String::from(format_as_sql_bool(key_value[1] == "true")));
                     }
                     _ => { return None; }
                 }
@@ -254,7 +248,7 @@ fn url_to_sql_query(query_text : &str) -> Option<String>
     }
 
     result += " LIMIT 10";
-    return Some(result);
+    return Some((result, params));
 }
 
 fn today() -> Date
@@ -270,7 +264,7 @@ fn today() -> Date
 
 struct State
 {
-    database : Option<sqlite::Connection>
+    database : Option<rusqlite::Connection>
 }
 
 impl State
@@ -281,27 +275,22 @@ impl State
     }
 }
 
-fn escape_quotes(string : &str) -> String
+fn sql_arg_string_contains(string : &str) -> String
 {
-    return String::from("\"") + &string.replace("\"", "\\\"") + "\"";
+    return String::from("%") + string + "%";
 }
 
-fn escape_quotes_for_contains(string : &str) -> String
+fn sql_arg_list_contains(string : &str) -> String
 {
-    return String::from("\"%") + &string.replace("\"", "\\\"") + "%\"";
-}
-
-fn escape_quotes_for_contains_in_list(string : &str) -> String
-{
-    return String::from("\"%|") + &string.replace("\"", "\\\"") + "|%\"";
+    return String::from("%|") + string + "|%";
 }
 
 fn format_as_sql_array(strings : &[String]) -> String
 {
     if strings.is_empty() {
-        return String::new();
+        return String::from("||");
     } else {
-        return escape_quotes(&(String::from("|") + &strings.join("|") + "|"));
+        return String::from("|") + &strings.join("|") + "|";
     }
 }
 
@@ -316,7 +305,7 @@ fn read_from_sql_array(string : &str) -> Vec<String>
 
 fn format_as_sql_date(date : Date) -> String
 {
-    return format!("'{:04}-{:02}-{:02}'", date.year, month_to_index(date.month), date.day);
+    return format!("{:04}-{:02}-{:02}", date.year, month_to_index(date.month), date.day);
 }
 
 fn read_sql_date(text : &str) -> Option<Date>
@@ -334,34 +323,54 @@ fn format_as_sql_bool(b : bool) -> &'static str
     }
 }
 
-fn run_sql(database : &sqlite::Connection, command : &str) -> sqlite::Result<()>
+fn run_sql<Params : rusqlite::Params>(database : &rusqlite::Connection, command : &str, params : Params) -> rusqlite::Result<usize>
 {
-    let result = database.execute(command);
+    let result = database.execute(command, params);
     if let Err(err) = &result {
         println!("SQL error: {}", err);
     }
     return result;
 }
 
-fn get_all_strings_of(table : &str) -> Vec<String>
+fn get_all_strings_of(table : &str) -> rusqlite::Result<Vec<String>>
 {
     let mut entries : Vec<String> = Vec::new();
 
     {
         let state = STATE.lock().unwrap();
-        state.database.as_ref().unwrap().iterate(format!("SELECT * from {}", table), |pairs| {
-            for &(column, value) in pairs.iter() {
-                if column == "value" {
-                    if let Some(x) = value {
-                        entries.push(String::from(x));
-                    }
-                }
-            }
-            true
-        }).unwrap();
+        let mut statement = state.database.as_ref().unwrap().prepare(&format!("SELECT * from {}", table))?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            entries.push(row.get(1)?)
+        }
     }
 
-    return entries;
+    return Ok(entries);
+}
+
+fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql_query : &str, sql_params : Params) -> rusqlite::Result<Vec<Entry>> {
+    let mut found_entries : Vec<Entry> = Vec::new();
+
+    let mut statement = database.prepare(sql_query)?;
+    let mut rows = statement.query(sql_params)?;
+    while let Some(row) = rows.next()? {
+        found_entries.push(Entry{
+            id : row.get(0)?,
+            link : row.get(1)?,
+            title : row.get(2)?,
+            description : row.get(3)?,
+            author : row.get(4)?,
+            category : row.get(5)?,
+            themes : read_from_sql_array(&row.get::<_, String>(6)?),
+            works_mentioned : read_from_sql_array(&row.get::<_, String>(7)?),
+            tags : read_from_sql_array(&row.get::<_, String>(8)?),
+            date_published : read_sql_date(&row.get::<_, String>(9)?).unwrap(),
+            date_saved : read_sql_date(&row.get::<_, String>(10)?).unwrap(),
+            exceptional : row.get(11)?,
+        });
+    }
+
+    return Ok(found_entries);
 }
 
 lazy_static! 
@@ -399,6 +408,29 @@ impl Requests
         );
     }
 
+    fn not_found_404_response() -> Result<Response<Body>, hyper::Error>
+    {
+        println!("404 Not found");
+        Ok(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(""))
+            .unwrap()
+        )
+    }
+
+    fn bad_request_response(error_message : &str) -> Result<Response<Body>, hyper::Error>
+    {
+        println!("Rejecting bad request: {}", error_message);
+
+        Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"error_message":"{}""#, error_message)))
+            .or_else(|_| Requests::internal_server_error_response())
+    }
+
     fn entries_as_http_response(entries : &[Entry]) -> Result<Response<Body>, hyper::Error>
     {
         if let Ok(json) = serde_json::to_string(entries) {
@@ -416,62 +448,50 @@ impl Requests
 
     fn get_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
     {
-        let mut served_entries : Vec<Entry> = Vec::new();
-
-        let sql_query = match req.uri().query() {
+        let (sql_query, sql_params) = match req.uri().query() {
             Some(query_text) => match url_to_sql_query(query_text) {
                 Some(result) => result,
                 None => { return Requests::internal_server_error_response(); }
             },
-            None => String::from("SELECT * FROM entries LIMIT 10")
+            None => (String::from("SELECT * FROM entries LIMIT 10"), Vec::new())
         };
 
-        {
+        let served_entries = {
             let state = STATE.lock().unwrap();
-            let query_result = state.database.as_ref().unwrap().iterate(sql_query, |pairs| {
-                let mut entry : Entry = Default::default();
-                for &(column, value) in pairs.iter() {
-                    if let Some(x) = value {
-                        if column == "link" {
-                            entry.link = String::from(x);
-                        } else if column == "title" {
-                            entry.title = String::from(x);
-                        } else if column == "description" {
-                            entry.description = String::from(x);
-                        } else if column == "author" {
-                            entry.author = String::from(x);
-                        } else if column == "category" {
-                            entry.category = String::from(x);
-                        } else if column == "themes" {
-                            entry.themes = read_from_sql_array(x);
-                        } else if column == "works_mentioned" {
-                            entry.works_mentioned = read_from_sql_array(x);
-                        } else if column == "tags" {
-                            entry.tags = read_from_sql_array(x);
-                        } else if column == "date_published" {
-                            if let Some(date) = read_sql_date(x) {
-                                entry.date_published = date;
-                            }
-                        } else if column == "date_saved" {
-                            if let Some(date) = read_sql_date(x) {
-                                entry.date_saved = date;
-                            }
-                        } else if column == "exceptional" {
-                            entry.exceptional = x == "TRUE";
-                        }
-                    }
+            match select_texts(state.database.as_ref().unwrap(), &sql_query, sql_params.iter().map(|x| x as &dyn rusqlite::ToSql).collect::<Vec<&dyn rusqlite::ToSql>>().as_slice()) {
+                Ok(entries) => entries,
+                Err(err) => {
+                    println!("SQL query error: {}", err);
+                    return Requests::internal_server_error_response();
                 }
-                served_entries.push(entry);
-                true
-            });
-
-            if let Err(err) = query_result {
-                println!("SQL query error: {}", err);
-                return Requests::internal_server_error_response();
             }
-        }
+        };
 
         return Requests::entries_as_http_response(&served_entries);
+    }
+
+    fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let path = req.uri().path().strip_prefix("/api/texts/").unwrap();
+        if let Ok(entry_id) = path.parse::<i64>() {
+            let served_entries = {
+                let state = STATE.lock().unwrap();
+                match select_texts(state.database.as_ref().unwrap(), "SELECT * FROM entries WHERE entry_id = ?1", [ entry_id ]) {
+                    Ok(entries) => entries,
+                    Err(err) => {
+                        println!("{}", err);
+                        return Requests::internal_server_error_response();
+                    }
+                }
+            };
+            if served_entries.is_empty() {
+                return Requests::not_found_404_response();
+            } else {
+                return Requests::entries_as_http_response(&served_entries);
+            }
+        } else {
+            return Requests::bad_request_response(&format!("Could not convert '{}' to an entry id", path));
+        }
     }
 
     fn strings_as_http_response(strings : &Vec<String>) -> Result<Response<Body>, hyper::Error>
@@ -491,27 +511,42 @@ impl Requests
 
     fn get_categories() -> Result<Response<Body>, hyper::Error>
     {
-        return Requests::strings_as_http_response(&get_all_strings_of("categories"));
+        match &get_all_strings_of("categories") {
+            Ok(strings) => Requests::strings_as_http_response(strings),
+            Err(_) => Requests::internal_server_error_response()
+        }
     }
 
     fn get_authors() -> Result<Response<Body>, hyper::Error>
     {
-        return Requests::strings_as_http_response(&get_all_strings_of("authors"));
+        match &get_all_strings_of("authors") {
+            Ok(strings) => Requests::strings_as_http_response(strings),
+            Err(_) => Requests::internal_server_error_response()
+        }
     }
 
     fn get_themes() -> Result<Response<Body>, hyper::Error>
     {
-        return Requests::strings_as_http_response(&get_all_strings_of("themes"));
+        match &get_all_strings_of("themes") {
+            Ok(strings) => Requests::strings_as_http_response(strings),
+            Err(_) => Requests::internal_server_error_response()
+        }
     }
 
     fn get_works() -> Result<Response<Body>, hyper::Error>
     {
-        return Requests::strings_as_http_response(&get_all_strings_of("works"));
+        match &get_all_strings_of("works") {
+            Ok(strings) => Requests::strings_as_http_response(strings),
+            Err(_) => Requests::internal_server_error_response()
+        }
     }
 
     fn get_tags() -> Result<Response<Body>, hyper::Error>
     {
-        return Requests::strings_as_http_response(&get_all_strings_of("tags"));
+        match &get_all_strings_of("tags") {
+            Ok(strings) => Requests::strings_as_http_response(strings),
+            Err(_) => Requests::internal_server_error_response()
+        }
     }
 
     async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
@@ -522,55 +557,58 @@ impl Requests
                 let state = STATE.lock().unwrap();
 
                 if let Some(database) = &state.database {
-                    let result = database.execute(format!(
+                    let result = database.execute(
                         "
                         INSERT INTO entries (link, title, description, author, category, themes, works_mentioned, tags, date_published, date_saved, exceptional)
-                        VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
                         ",
-                        escape_quotes(&form.link), escape_quotes(&form.title), escape_quotes(&form.description), escape_quotes(&form.author), escape_quotes(&form.category), 
-                        format_as_sql_array(&form.themes), format_as_sql_array(&form.works_mentioned), format_as_sql_array(&form.tags),
-                        format_as_sql_date(form.date_published), format_as_sql_date(today()), format_as_sql_bool(form.exceptional)
-                    ));
+                        [ &form.link
+                        , &form.title
+                        , &form.description
+                        , &form.author
+                        , &form.category 
+                        , &format_as_sql_array(&form.themes) 
+                        , &format_as_sql_array(&form.works_mentioned) 
+                        , &format_as_sql_array(&form.tags)
+                        , &format_as_sql_date(form.date_published)
+                        , &format_as_sql_date(today())
+                        , format_as_sql_bool(form.exceptional)
+                        ]
+                    );
 
                     if let Err(err) = result {
                         println!("Insert to database failed: {}", err);
                         return Requests::internal_server_error_response();
                     }
 
+                    let last_insert_row_id = database.last_insert_rowid();
+
                     // Ignore errors when inserting an element that is already present in tables of unique values.
-                    _ = run_sql(&database, &format!("INSERT INTO authors (value) VALUES ({})", escape_quotes(&form.author)));
-                    _ = run_sql(&database, &format!("INSERT INTO categories (value) VALUES ({})", escape_quotes(&form.category)));
+                    _ = run_sql(&database, "INSERT INTO authors (value) VALUES (?)", [&form.author]);
+                    _ = run_sql(&database, "INSERT INTO categories (value) VALUES (?)", [&form.category]);
                     for theme in &form.themes {
-                        _ = run_sql(&database, &format!("INSERT INTO themes (value) VALUES ({})", escape_quotes(theme)));
+                        _ = run_sql(&database, "INSERT INTO themes (value) VALUES (?)", [theme]);
                     }
                     for work in &form.works_mentioned {
-                        _ = run_sql(&database, &format!("INSERT INTO works (value) VALUES ({})", escape_quotes(work)));
+                        _ = run_sql(&database, "INSERT INTO works (value) VALUES (?)", [work]);
                     }
                     for tag in &form.tags {
-                        _ = run_sql(&database, &format!("INSERT INTO tags (value) VALUES ({})", escape_quotes(tag)));
+                        _ = run_sql(&database, "INSERT INTO tags (value) VALUES (?)", [tag]);
                     }
+
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(format!(r#"{{"success":true,"id":{},"link":"http://localhost:8080/api/texts/{}"}}"#, last_insert_row_id, last_insert_row_id)))
+                        .or_else(|_| Requests::internal_server_error_response())
                 } else {
                     return Requests::internal_server_error_response();
                 }
-
-                Response::builder()
-                    .status(StatusCode::OK)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Allow-Headers", "*")
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(r#"{"success":"true"}"#))
-                    .or_else(|_| Requests::internal_server_error_response())
             }
             Err(err) => {
-                println!("Rejecting bad request: {}", err);
-                
-                Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Allow-Headers", "*")
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(format!("Invalid entry: {}", err)))
-                    .or_else(|_| Requests::internal_server_error_response())
+                Requests::bad_request_response(&format!("{}", err))
             }
         }
     }
@@ -612,6 +650,7 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         (&Method::GET, "/favicon.ico") => Requests::serve_file("pages/favicon.ico", "image/vnd.microsoft.icon"),
 
         (&Method::GET, "/api/texts") => Requests::get_texts(req),
+        (&Method::GET, path) if path.starts_with("/api/texts/") => Requests::get_single_text(req),
         (&Method::POST, "/api/texts") => Requests::post_texts(req).await,
 
         (&Method::GET, "/api/categories") => Requests::get_categories(),
@@ -621,26 +660,19 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         (&Method::GET, "/api/tags") => Requests::get_tags(),
 
         // Return the 404 Not Found for other routes.
-        _ => {
-            println!("404 Not found");
-            Ok(Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from(""))
-                .unwrap()
-            )
-        }
+        _ => Requests::not_found_404_response()
     }
 }
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
-    let connection = sqlite::open(DATABASE_FILENAME)?;
+    let connection = rusqlite::Connection::open(DATABASE_FILENAME)?;
 
     connection.execute(
         "
         CREATE TABLE IF NOT EXISTS entries (
-            entry_id INT PRIMARY KEY AUTOINCREMENT NOT NULL, 
+            entry_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
             link TEXT NOT NULL COLLATE NOCASE, 
             title TEXT NOT NULL COLLATE NOCASE,
             description TEXT NOT NULL COLLATE NOCASE,
@@ -655,14 +687,15 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             image BLOB,
             backup BLOB
         );
-        "
+        ", []
     )?;
 
-    connection.execute("CREATE TABLE IF NOT EXISTS authors (entry_id INT PRIMARY KEY, value TEXT UNIQUE NOT NULL);")?;
-    connection.execute("CREATE TABLE IF NOT EXISTS categories (entry_id INT PRIMARY KEY, value TEXT UNIQUE NOT NULL);")?;
-    connection.execute("CREATE TABLE IF NOT EXISTS themes (entry_id INT PRIMARY KEY, value TEXT UNIQUE NOT NULL);")?;
-    connection.execute("CREATE TABLE IF NOT EXISTS works (entry_id INT PRIMARY KEY, value TEXT UNIQUE NOT NULL);")?;
-    connection.execute("CREATE TABLE IF NOT EXISTS tags (entry_id INT PRIMARY KEY, value TEXT UNIQUE NOT NULL);")?;
+    connection.execute("CREATE TABLE IF NOT EXISTS authors (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
+    connection.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
+    connection.execute("CREATE TABLE IF NOT EXISTS themes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
+    connection.execute("CREATE TABLE IF NOT EXISTS works (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
+    connection.execute("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
+
 
     STATE.lock().unwrap().database = Some(connection);
 
@@ -700,7 +733,10 @@ mod tests
     fn test_url_to_sql_query_link_checks_for_containment() {
         let url_params = "link=wikipedia";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE "%wikipedia%" LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%wikipedia%"]);
+            }
             None => unreachable!()
         }
     }
@@ -709,7 +745,10 @@ mod tests
     fn test_url_to_sql_query_title_checks_for_containment() {
         let url_params = "title=Hello";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE title LIKE "%Hello%" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE title LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%Hello%"]);
+            }
             None => unreachable!()
         }
     }
@@ -718,7 +757,10 @@ mod tests
     fn test_url_to_sql_query_author_checks_for_equality() {
         let url_params = "author=Pauline%20Kael";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE author = "Pauline Kael" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE author = ? LIMIT 10"#);
+                assert_eq!(params, ["Pauline Kael"]);
+            }
             None => unreachable!()
         }
     }
@@ -727,7 +769,10 @@ mod tests
     fn test_url_to_sql_query_description_checks_for_containment() {
         let url_params = "description=compiler";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE description LIKE "%compiler%" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE description LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%compiler%"]);
+            }
             None => unreachable!()
         }
     }
@@ -736,7 +781,10 @@ mod tests
     fn test_url_to_sql_query_category_checks_for_equality() {
         let url_params = "category=Programming";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE category = "Programming" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE category = ? LIMIT 10"#);
+                assert_eq!(params, ["Programming"]);
+            }
             None => unreachable!()
         }
     }
@@ -745,7 +793,10 @@ mod tests
     fn test_url_to_sql_query_themes_checks_for_containment_of_each() {
         let url_params = "themes=Rust%7CTesting";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE themes LIKE "%|Rust|%" AND themes LIKE "%|Testing|%" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE themes LIKE ? AND themes LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%|Rust|%", "%|Testing|%"]);
+            }
             None => unreachable!()
         }
     }
@@ -754,7 +805,10 @@ mod tests
     fn test_url_to_sql_query_works_checks_for_containment_of_each() {
         let url_params = "works_mentioned=Hamlet%7CMacBeth%7CKing%20Lear";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE works_mentioned LIKE "%|Hamlet|%" AND works_mentioned LIKE "%|MacBeth|%" AND works_mentioned LIKE "%|King Lear|%" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE works_mentioned LIKE ? AND works_mentioned LIKE ? AND works_mentioned LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%|Hamlet|%", "%|MacBeth|%", "%|King Lear|%"]);
+            }
             None => unreachable!()
         }
     }
@@ -763,7 +817,10 @@ mod tests
     fn test_url_to_sql_query_tags_checks_for_containment_of_each() {
         let url_params = "tags=Soulslike%7CGreat%20soundtrack%7CFemale%20protagonist";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE tags LIKE "%|Soulslike|%" AND tags LIKE "%|Great soundtrack|%" AND tags LIKE "%|Female protagonist|%" LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE tags LIKE ? AND tags LIKE ? AND tags LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%|Soulslike|%", "%|Great soundtrack|%", "%|Female protagonist|%"]);
+            }
             None => unreachable!()
         }
     }
@@ -772,7 +829,10 @@ mod tests
     fn test_url_to_sql_query_date_is_formated_as_yyyy_mm_dd() {
         let url_params = "published_between_from=1967-5-3";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE date_published >= DATE('1967-05-03') LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE date_published >= DATE(?) LIMIT 10"#);
+                assert_eq!(params, ["1967-05-03"]);
+            }
             None => unreachable!()
         }
     }
@@ -781,7 +841,10 @@ mod tests
     fn test_url_to_sql_query_published_between_until_checks_for_less_equal() {
         let url_params = "published_between_until=1967-11-24";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE date_published <= DATE('1967-11-24') LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE date_published <= DATE(?) LIMIT 10"#);
+                assert_eq!(params, ["1967-11-24"]);
+            }
             None => unreachable!()
         }
     }
@@ -790,7 +853,10 @@ mod tests
     fn test_url_to_sql_query_bool_true_is_formated_as_uppercase_true() {
         let url_params = "exceptional=true";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = TRUE LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = ? LIMIT 10"#);
+                assert_eq!(params, ["TRUE"]);
+            }
             None => unreachable!()
         }
     }
@@ -799,7 +865,10 @@ mod tests
     fn test_url_to_sql_query_bool_false_is_formated_as_uppercase_false() {
         let url_params = "exceptional=false";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = FALSE LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE exceptional = ? LIMIT 10"#);
+                assert_eq!(params, ["FALSE"]);
+            }
             None => unreachable!()
         }
     }
@@ -808,7 +877,10 @@ mod tests
     fn test_url_to_sql_query_two_or_more_predicates_are_anded() {
         let url_params = "link=wikipedia&author=Pauline%20Kael&tags=Soulslike%7CGreat%20soundtrack%7CFemale%20protagonist";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE "%wikipedia%" AND author = "Pauline Kael" AND tags LIKE "%|Soulslike|%" AND tags LIKE "%|Great soundtrack|%" AND tags LIKE "%|Female protagonist|%" LIMIT 10"#),
+            Some((query, params)) => {
+                assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE ? AND author = ? AND tags LIKE ? AND tags LIKE ? AND tags LIKE ? LIMIT 10"#);
+                assert_eq!(params, ["%wikipedia%", "Pauline Kael", "%|Soulslike|%", "%|Great soundtrack|%", "%|Female protagonist|%"]);
+            } 
             None => unreachable!()
         }
     }
@@ -817,7 +889,10 @@ mod tests
     fn test_url_to_sql_query_quotes_are_escaped() {
         let url_params = "link=%22wikipedia%22";
         match url_to_sql_query(url_params) {
-            Some(query) => assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE "%\"wikipedia\"%" LIMIT 10"#),
+            Some((query, params)) => { 
+                assert_eq!(query, r#"SELECT * FROM entries WHERE link LIKE ? LIMIT 10"#);
+                assert_eq!(params, [r#"%"wikipedia"%"#]);
+            }
             None => unreachable!()
         }
     }
@@ -825,24 +900,24 @@ mod tests
     // format_as_sql_array
 
     #[test]
-    fn test_format_as_sql_array_empty_array_is_formatted_as_empty_string() {
+    fn test_format_as_sql_array_empty_array_is_formatted_as_a_string_containing_only_the_delimiters() {
         let strings = [];
         let as_sql_array = format_as_sql_array(&strings);
-        assert_eq!(as_sql_array, "");
+        assert_eq!(as_sql_array, "||");
     }
 
     #[test]
     fn test_format_as_sql_array_a_single_element_is_surrounded_by_or_bars_and_quotes() {
         let strings = [ String::from("Iruña") ];
         let as_sql_array = format_as_sql_array(&strings);
-        assert_eq!(as_sql_array, r#""|Iruña|""#);
+        assert_eq!(as_sql_array, "|Iruña|");
     }
 
     #[test]
     fn test_format_as_sql_array_several_elements_are_separated_by_or_bars() {
         let strings = [ String::from("Iruña"), String::from("Bilbo"), String::from("Gasteiz"), String::from("Donostia") ];
         let as_sql_array = format_as_sql_array(&strings);
-        assert_eq!(as_sql_array, r#""|Iruña|Bilbo|Gasteiz|Donostia|""#);
+        assert_eq!(as_sql_array, "|Iruña|Bilbo|Gasteiz|Donostia|");
     }
 
     // read_from_sql_array
