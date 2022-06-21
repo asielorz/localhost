@@ -108,6 +108,7 @@ struct Entry {
     date_published : Date,
     date_saved : Date,
     exceptional : bool,
+    image : Option<String>
 }
 
 fn parse_date_query_argument(query_argument : &str) -> Option<Date>
@@ -345,8 +346,10 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql
     let mut statement = database.prepare(sql_query)?;
     let mut rows = statement.query(sql_params)?;
     while let Some(row) = rows.next()? {
+        let id : i64 = row.get(0)?;
+        
         found_entries.push(Entry{
-            id : row.get(0)?,
+            id : id,
             link : row.get(1)?,
             title : row.get(2)?,
             description : row.get(3)?,
@@ -358,6 +361,7 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql
             date_published : read_sql_date(&row.get::<_, String>(9)?).unwrap(),
             date_saved : read_sql_date(&row.get::<_, String>(10)?).unwrap(),
             exceptional : row.get(11)?,
+            image : if row.get_ref(12)?.as_blob_or_null()?.is_some() { Some(format!("http://localhost:8080/api/texts/{}/image", id)) } else { None }
         });
     }
 
@@ -412,6 +416,7 @@ impl Requests
             .header("Allow", "OPTIONS, GET, PUT, POST")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
+            .header("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST")
             .body(Body::from(""))
             .or_else(|_| Requests::internal_server_error_response());
     }
@@ -588,7 +593,7 @@ impl Requests
             "
             UPDATE entries
             SET image = ?
-            WHERE employee_id = ?
+            WHERE entry_id = ?
             ",
             rusqlite::params![rusqlite::blob::ZeroBlob(whole_body.len() as i32), entry_id]
         ) {

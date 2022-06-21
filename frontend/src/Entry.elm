@@ -25,6 +25,7 @@ type alias Entry =
   , date_published : Calendar.Date
   , date_saved : Calendar.Date
   , exceptional : Bool
+  , image : Maybe String
   }
 
 -- view
@@ -64,17 +65,22 @@ view_image entry = UI.el
   <| UI.link
     [ UI.width (px 300)
     , UI.height (px 169)
-    , Background.color Config.widget_background_color
+    , case entry.image of
+      Nothing -> Background.color Config.widget_background_color
+      Just image_url -> Background.image image_url
     , UI.centerX
     , UI.centerY
     ]
-    { label = UI.el 
-      [ UI.centerX
-      , UI.centerY
-      , Font.size 25
-      , Font.center
-      ] 
-      <| UI.text "Imagen"
+    { label =
+      if entry.image /= Nothing
+        then UI.none
+        else UI.el 
+          [ UI.centerX
+          , UI.centerY
+          , Font.size 25
+          , Font.center
+          ] 
+          <| UI.text "Imagen"
     , url = entry.link
     }
 
@@ -160,9 +166,10 @@ from_json =
       (Json.field "themes" (Json.list Json.string)) 
       (Json.field "works_mentioned" (Json.list Json.string))
   in 
-    Json.map5 (<|)
+    Json.map6 (<|)
       fields
       (Json.field "tags" (Json.list Json.string))
       (Json.field "date_published" DateUtils.date_from_json)
       (Json.field "date_saved" DateUtils.date_from_json)
       (Json.field "exceptional" Json.bool)
+      (Json.field "image" (Json.nullable Json.string))
