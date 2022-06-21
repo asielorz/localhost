@@ -1,4 +1,4 @@
-module Page_NewEntry exposing (Model, Msg, init, update, view, title)
+module Page_NewEntry exposing (Model, Msg, init, edit, update, view, title)
 
 import Element as UI exposing (rgb, px, rgba)
 import Element.Background as Background
@@ -21,14 +21,44 @@ import InputBox exposing (..)
 import Utils
 import File exposing (File)
 import File.Select
-import Task
+import Task exposing (Task)
 import Base64
 import Bytes exposing (Bytes)
 import Fontawesome exposing (fontawesome_text)
 import Url
+import Entry exposing (Entry)
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)
+
+edit : Int -> (Model, Cmd Msg)
+edit id = 
+  let
+    default_form = 
+      { link = ""
+      , title = ""
+      , description = ""
+      , author = ""
+      , category = ""
+      , themes = []
+      , works_mentioned = []
+      , tags = []
+      , date_published = Nothing
+      , exceptional = False
+      }
+  in
+    ( { default_model 
+        | edited_entry = Just { id = id, original_form = default_form, original_image = Image_None }
+        , app_state = State_Notify { message = "Loading...", close = do_not_close }
+      }
+    , Cmd.batch 
+      [ initial_commands 
+      , Http.get 
+        { url = "http://localhost:8080/api/texts/" ++ String.fromInt id
+        , expect = Http.expectJson Msg_ReceivedEntryToEdit Entry.from_json 
+        }
+      ]
+    )
 
 title : String
 title = "Nueva entrada"
@@ -48,15 +78,23 @@ type ComboId
   | ComboId_Theme Int
   | ComboId_Tag Int
 
+type alias CloseDialogFunction = Model -> (Model, Cmd Msg)
+
 type AppState 
   = State_Editing 
-  | State_Notify { message : String, reset_on_close : Bool }
+  | State_Notify { message : String, close : CloseDialogFunction }
   | State_InputUrl { url : String }
 
 type EntryImage
   = Image_None
   | Image_Url String
-  | Image_File { path : String, url : String, content_type : String, bytes : Bytes }
+  | Image_File { url : String, content_type : String, bytes : Bytes }
+
+type alias EditedEntry =
+  { id : Int
+  , original_form : NewEntry.Form
+  , original_image : EntryImage
+  }
 
 type alias Model = 
   { link : String
@@ -74,6 +112,10 @@ type alias Model =
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
   , app_state : AppState
+
+  -- If this is none, a new entry is being added. If it's set, an existing entry is being edited.
+  -- This alters the behavior of the send button, which will either post or put.
+  , edited_entry : Maybe EditedEntry
 
   -- Cached. Received from the server. Used for autocompletion.
   , all_categories : List String
@@ -100,6 +142,8 @@ default_model =
   , exceptional = False
   , currently_open_combo = Nothing
   , app_state = State_Editing
+
+  , edited_entry = Nothing
 
   , all_categories = []
   , all_authors = []
@@ -134,13 +178,15 @@ type Msg
   | Msg_Tags (ListWidget.Msg String)
   | Msg_DatePublishedChanged DatePicker.Msg
   | Msg_Send
-  | Msg_CloseResponseDialog Bool
+  | Msg_Save
+  | Msg_Delete
+  | Msg_CloseResponseDialog CloseDialogFunction
   | Msg_OpenComboChanged (Maybe ComboId)
 
   -- Image
   | Msg_ImageFileButtonClicked
   | Msg_ImageFileOpened File
-  | Msg_ImageLoaded { path : String, url : String, content_type : String, bytes : Bytes }
+  | Msg_ImageLoaded { url : String, content_type : String, bytes : Bytes }
   | Msg_ImageUrlButtonClicked
   | Msg_InputUrlChanged String
   | Msg_ImageUrlChosen String
@@ -148,11 +194,15 @@ type Msg
 
   -- Server
   | Msg_ResponseToSendArrived (Result Http.Error ())
+  | Msg_ResponseToSaveArrived (Result Http.Error ())
+
   | Msg_ReceivedCategories (Result Http.Error (List String))
   | Msg_ReceivedAuthors (Result Http.Error (List String))
   | Msg_ReceivedThemes (Result Http.Error (List String))
   | Msg_ReceivedWorks (Result Http.Error (List String))
   | Msg_ReceivedTags (Result Http.Error (List String))
+  | Msg_ReceivedEntryToEdit (Result Http.Error Entry)
+  | Msg_ReceivedImageToEdit (Result Http.Error Bytes)
 
 -- update
 
@@ -165,11 +215,31 @@ set_open_combo id model = { model | currently_open_combo = id }
 set_backup : Backup -> Model -> Model
 set_backup backup model = { model | backup = backup }
 
+just_close_dialog : CloseDialogFunction
+just_close_dialog model = ({ model | app_state = State_Editing }, Cmd.none)
+
+reset_form : CloseDialogFunction
+reset_form model = 
+  (
+    { default_model 
+      | edited_entry = model.edited_entry 
+      , all_categories = model.all_categories
+      , all_authors = model.all_authors
+      , all_themes = model.all_themes
+      , all_works = model.all_works
+      , all_tags = model.all_tags
+    }
+  , Cmd.none
+  )
+
+do_not_close : CloseDialogFunction
+do_not_close model = (model, Cmd.none)
+
 notify_success : AppState
-notify_success = State_Notify { message = "Nueva entrada añadida correctamente.", reset_on_close = True }
+notify_success = State_Notify { message = "Nueva entrada añadida correctamente.", close = reset_form }
 
 notify_error : String -> AppState
-notify_error error_message = State_Notify { message = "Error al añadir nueva entrada: " ++ error_message, reset_on_close = False }
+notify_error error_message = State_Notify { message = error_message, close = just_close_dialog }
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
@@ -215,10 +285,14 @@ update msg model = case msg of
   Msg_Send -> 
     send_button_clicked model
 
-  Msg_CloseResponseDialog reset ->
-    if reset
-      then (default_model, Cmd.none)
-      else ({ model | app_state = State_Editing }, Cmd.none)
+  Msg_Save ->
+    save_button_clicked model
+
+  Msg_Delete ->
+    (model, Cmd.none)
+
+  Msg_CloseResponseDialog close_function -> 
+    close_function model
 
   Msg_OpenComboChanged new_open_combo -> 
     ({ model | currently_open_combo = new_open_combo }, Cmd.none)
@@ -240,11 +314,11 @@ update msg model = case msg of
               extension = path |> String.split "." |> Utils.last
             in
               case extension of
-                Just "png"  -> Msg_ImageLoaded { path = path, url = "data:image/png;base64,"  ++ base64, content_type = "image/png",  bytes = bytes }
-                Just "bmp"  -> Msg_ImageLoaded { path = path, url = "data:image/bmp;base64,"  ++ base64, content_type = "image/bmp",  bytes = bytes }
-                Just "jpg"  -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, content_type = "image/jpeg", bytes = bytes }
-                Just "jpeg" -> Msg_ImageLoaded { path = path, url = "data:image/jpeg;base64," ++ base64, content_type = "image/jpeg", bytes = bytes }
-                Just "gif"  -> Msg_ImageLoaded { path = path, url = "data:image/gif;base64,"  ++ base64, content_type = "image/gif",  bytes = bytes }
+                Just "png"  -> Msg_ImageLoaded { url = "data:image/png;base64,"  ++ base64, content_type = "image/png",  bytes = bytes }
+                Just "bmp"  -> Msg_ImageLoaded { url = "data:image/bmp;base64,"  ++ base64, content_type = "image/bmp",  bytes = bytes }
+                Just "jpg"  -> Msg_ImageLoaded { url = "data:image/jpeg;base64," ++ base64, content_type = "image/jpeg", bytes = bytes }
+                Just "jpeg" -> Msg_ImageLoaded { url = "data:image/jpeg;base64," ++ base64, content_type = "image/jpeg", bytes = bytes }
+                Just "gif"  -> Msg_ImageLoaded { url = "data:image/gif;base64,"  ++ base64, content_type = "image/gif",  bytes = bytes }
                 _ -> Msg_Noop
         )
       |> Task.perform identity
@@ -269,7 +343,11 @@ update msg model = case msg of
 
   Msg_ResponseToSendArrived response -> case response of
     Ok _ -> ({ model | app_state = notify_success }, Cmd.none)
-    Err err -> ({ model | app_state = notify_error (http_error_to_string err) }, Cmd.none)
+    Err err -> ({ model | app_state = notify_error ("Error al añadir nueva entrada:\n" ++ http_error_to_string err) }, Cmd.none)
+
+  Msg_ResponseToSaveArrived response -> case response of
+    Ok _ -> ({ model | app_state = notify_error "Los cambios a la entrada se han guardado correctamente." }, Cmd.none)
+    Err err -> ({ model | app_state = notify_error ("Error al guardar cambios:\n" ++ http_error_to_string err) }, Cmd.none)
 
   Msg_ReceivedCategories result ->
     case result of
@@ -294,6 +372,50 @@ update msg model = case msg of
   Msg_ReceivedTags result ->
     case result of
       Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
+      Err _ -> (model, Cmd.none)
+
+  Msg_ReceivedEntryToEdit result ->
+    case result of
+      Ok entry ->
+        ( { model 
+          | edited_entry = model.edited_entry |> Maybe.map (\e -> { e | original_form =
+            { link = entry.link
+            , title = entry.title
+            , description = entry.description
+            , author = entry.author
+            , category = entry.category
+            , themes = entry.themes
+            , works_mentioned = entry.works_mentioned
+            , tags = entry.tags
+            , date_published = Just entry.date_published
+            , exceptional = entry.exceptional
+            } })
+          , link = entry.link
+          , title = entry.title
+          , description = entry.description
+          , author = entry.author
+          , category = entry.category
+          , themes = entry.themes
+          , works_mentioned = entry.works_mentioned
+          , tags = entry.tags
+          , date_published = DatePicker.set_date (Just entry.date_published) model.date_published
+          , exceptional = entry.exceptional
+          , app_state = State_Editing
+          }
+        , Cmd.none
+        )
+      Err err -> ({ model | app_state = State_Notify { message = "Error al buscar entrada para editar:\n" ++ http_error_to_string err, close = do_not_close } }, Cmd.none)
+
+  Msg_ReceivedImageToEdit result -> 
+    case result of
+      Ok received_image ->
+        ( { model | edited_entry = model.edited_entry |> Maybe.map (\e -> { e | original_image = Image_File 
+          { url = "http://localhost:8080/" ++ String.fromInt e.id ++ "/image"
+          , bytes = received_image 
+          , content_type = "image/png"
+          } }) }
+        , Cmd.none
+        )
       Err _ -> (model, Cmd.none)
 
 http_error_to_string : Http.Error -> String
@@ -329,11 +451,8 @@ make_new_entry_form model =
 --   , expect = Http.expectString Msg_ResponseToSendArrived
 --   }
 
-send_button_clicked : Model -> (Model, Cmd Msg)
-send_button_clicked model = case make_new_entry_form model of
-  Ok form -> 
-    let 
-      resolve toResult response =
+resolve : (body -> Result String a) -> Http.Response body -> Result Http.Error a
+resolve toResult response =
         case response of
           Http.BadUrl_ url -> Err (Http.BadUrl url)
           Http.Timeout_ -> Err Http.Timeout
@@ -341,6 +460,23 @@ send_button_clicked model = case make_new_entry_form model of
           Http.BadStatus_ metadata _ -> Err (Http.BadStatus metadata.statusCode)
           Http.GoodStatus_ _ body -> Result.mapError Http.BadBody (toResult body)
 
+put_image_task : EntryImage -> Int -> Task Http.Error ()
+put_image_task image id = 
+  case image of
+    Image_File image_file -> Http.task
+      { method = "PUT"
+      , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+      , headers = []
+      , body = Http.bytesBody image_file.content_type image_file.bytes
+      , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+      , timeout = Nothing
+      }
+    _ -> Task.succeed ()
+
+send_button_clicked : Model -> (Model, Cmd Msg)
+send_button_clicked model = case make_new_entry_form model of
+  Ok form -> 
+    let
       task = Http.task 
         { method = "POST"
         , url = "http://localhost:8080/api/texts"
@@ -350,23 +486,38 @@ send_button_clicked model = case make_new_entry_form model of
           (\body -> Json.Decode.decodeString (Json.Decode.field "id" Json.Decode.int) body |> Result.mapError (\err -> Json.Decode.errorToString err))
         , timeout = Nothing
         }
-        |> Task.andThen 
-          (
-            \id -> case model.image of
-                Image_File image -> Http.task
-                  { method = "PUT"
-                  , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
-                  , headers = []
-                  , body = Http.bytesBody image.content_type image.bytes
-                  , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
-                  , timeout = Nothing
-                  }
-                _ -> Task.succeed ()
-          )
+        |> Task.andThen (put_image_task model.image)
     in
       (model
       , Task.attempt Msg_ResponseToSendArrived task 
       )
+
+  Err err -> 
+    ({model | app_state = notify_error <| "El formulario no es válido:\n" ++ err}
+    , Cmd.none
+    )
+
+save_button_clicked : Model -> (Model, Cmd Msg)
+save_button_clicked model = case make_new_entry_form model of
+  Ok form -> case model.edited_entry of
+    Nothing -> (model, Cmd.none)
+    Just edited_entry ->
+      let
+        send_form_task =
+          if form == edited_entry.original_form
+            then Task.succeed ()
+            else Task.succeed () -- To do, implement put task for forms
+
+        send_image_task =
+          if model.image == edited_entry.original_image
+            then Task.succeed ()
+            else put_image_task model.image edited_entry.id
+        
+        command = Task.sequence [ send_form_task, send_image_task ]
+          |> Task.map (\_ -> ()) -- Discard result. The result is a List () anyway so we don't really care
+          |> Task.attempt Msg_ResponseToSaveArrived
+      in
+        (model, command)
 
   Err err -> 
     ({model | app_state = notify_error <| "El formulario no es válido:\n" ++ err}
@@ -482,6 +633,31 @@ send_button = Input.button
   , label = UI.text "Enviar"
   }
 
+save_and_delete_buttons: UI.Element Msg
+save_and_delete_buttons = UI.column 
+  [ UI.spacing 10
+  , UI.width UI.fill
+  ]
+  [ Input.button 
+      (Config.widget_common_attributes ++
+      [ Background.color (rgb 0 0.6 0)
+      , Font.center
+      , UI.width UI.fill
+      ])
+      { onPress = Just Msg_Save
+      , label = UI.text "Guardar"
+      }
+  , Input.button 
+      (Config.widget_common_attributes ++
+      [ Background.color (rgb 0.8 0 0)
+      , Font.center
+      , UI.width UI.fill
+      ])
+      { onPress = Just Msg_Delete
+      , label = UI.text "Borrar"
+      }
+  ]
+
 view_main_column : Model -> UI.Element Msg
 view_main_column form = UI.column 
   [ UI.alignTop
@@ -493,7 +669,7 @@ view_main_column form = UI.column
   , row "Tipo"                  <| type_combo_button form.entry_type form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.currently_open_combo
   , row "Descripción"           <| multiline_input_box form.description Msg_DescriptionChanged
-  , row ""                      <| send_button
+  , row ""                      <| if form.edited_entry == Nothing then send_button else save_and_delete_buttons
   ]
 
 view_image : EntryImage -> UI.Element Msg
@@ -641,7 +817,7 @@ dialog state = case state of
         , UI.row [ UI.width UI.fill, UI.spacing 10 ] 
           [ input_box [ UI.width UI.fill ] args.url Msg_InputUrlChanged
           , Input.button (UI.mouseOver [ Background.color Config.widget_hovered_background_color ] :: Config.widget_common_attributes)
-            { onPress = if Url.fromString args.url == Nothing then Just <| Msg_CloseResponseDialog False else Just <| Msg_ImageUrlChosen args.url
+            { onPress = if Url.fromString args.url == Nothing then Just <| Msg_CloseResponseDialog just_close_dialog else Just <| Msg_ImageUrlChosen args.url
             , label = fontawesome_text [] "\u{f00c}" -- check
             }
           ]
@@ -652,12 +828,12 @@ dialog_background state = case state of
   State_Editing -> UI.none
   _ -> 
     let
-      reset_on_close = case state of 
-        State_Notify args -> args.reset_on_close
-        _ -> False
+      close_function = case state of 
+        State_Notify args -> args.close
+        _ -> just_close_dialog
     in 
       UI.el
-      [ Events.onClick <| Msg_CloseResponseDialog reset_on_close
+      [ Events.onClick <| Msg_CloseResponseDialog close_function
       , Background.color (rgba 0 0 0 0.75)
       , UI.width UI.fill
       , UI.height UI.fill

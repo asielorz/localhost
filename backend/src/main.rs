@@ -288,7 +288,7 @@ fn sql_arg_list_contains(string : &str) -> String
 fn format_as_sql_array(strings : &[String]) -> String
 {
     if strings.is_empty() {
-        return String::from("||");
+        return String::from("");
     } else {
         return String::from("|") + &strings.join("|") + "|";
     }
@@ -296,7 +296,7 @@ fn format_as_sql_array(strings : &[String]) -> String
 
 fn read_from_sql_array(string : &str) -> Vec<String>
 {
-    if string.is_empty() {
+    if string.is_empty() || string == "||" {
         return Vec::new();
     } else {
         return string[1..string.len() - 1].split("|").map(String::from).collect();
@@ -451,7 +451,7 @@ impl Requests
             .or_else(|_| Requests::internal_server_error_response())
     }
 
-    fn entries_as_http_response(entries : &[Entry]) -> Result<Response<Body>, hyper::Error>
+    fn to_json_http_response<T : Serialize>(entries : &T) -> Result<Response<Body>, hyper::Error>
     {
         if let Ok(json) = serde_json::to_string(entries) {
             return Response::builder()
@@ -487,7 +487,7 @@ impl Requests
             }
         };
 
-        return Requests::entries_as_http_response(&served_entries);
+        return Requests::to_json_http_response(&served_entries);
     }
 
     fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
@@ -507,7 +507,7 @@ impl Requests
             if served_entries.is_empty() {
                 return Requests::not_found_404_response();
             } else {
-                return Requests::entries_as_http_response(&served_entries);
+                return Requests::to_json_http_response(&served_entries[0]);
             }
         } else {
             return Requests::bad_request_response(&format!("Could not convert '{}' to an entry id", path));
@@ -1024,10 +1024,10 @@ mod tests
     // format_as_sql_array
 
     #[test]
-    fn test_format_as_sql_array_empty_array_is_formatted_as_a_string_containing_only_the_delimiters() {
+    fn test_format_as_sql_array_empty_array_is_formatted_as_empty_string() {
         let strings = [];
         let as_sql_array = format_as_sql_array(&strings);
-        assert_eq!(as_sql_array, "||");
+        assert_eq!(as_sql_array, "");
     }
 
     #[test]

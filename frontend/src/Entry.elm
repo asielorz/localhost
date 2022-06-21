@@ -5,7 +5,6 @@ import Element as UI exposing (px, rgb)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events as Events
-import Element.Input as Input
 import Element.Font as Font
 import Fontawesome exposing (fontawesome_text)
 import Config
@@ -57,8 +56,8 @@ view_image entry = UI.el
   , UI.height (px 173) 
   , Border.color Config.widget_border_color
   , Border.width 2
-  , UI.inFront <| Input.button [UI.padding 7]
-    { onPress = Nothing
+  , UI.inFront <| UI.link [ UI.moveRight 7, UI.moveDown 7 ]
+    { url = "/edit/" ++ String.fromInt entry.id
     , label = fontawesome_text [ Font.size 40 ] "\u{f14b}" -- square-pen
     }
   ]

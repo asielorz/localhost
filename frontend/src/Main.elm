@@ -11,6 +11,7 @@ import Element as UI exposing (rgb)
 import Element.Font as Font
 import Element.Background as Background
 import Url exposing (Url)
+import Url.Parser exposing ((</>))
 import Config
 import Banner
 import Http exposing (request)
@@ -30,6 +31,7 @@ type PageModel
   = PageModel_NotFound
   | PageModel_NewEntry Page_NewEntry.Model
   | PageModel_Search Page_Search.Model
+  | PageModel_Edit Page_NewEntry.Model
 
 type alias Model =
   { navigation_key : Navigation.Key
@@ -41,22 +43,34 @@ type Msg
   | Msg_UrlChange Url
   | Msg_NewEntry Page_NewEntry.Msg
   | Msg_Search Page_Search.Msg
+  | Msg_Edit Page_NewEntry.Msg
 
 map_init : (model -> PageModel) -> (msg -> Msg) -> (model, Cmd msg) -> (PageModel, Cmd Msg)
 map_init map_model map_msg (model, cmd) = (map_model model, Cmd.map map_msg cmd)
 
 navigate_to : Url -> PageModel -> (PageModel, Cmd Msg)
-navigate_to url model = case url.path of 
-      "/new_entry" -> map_init PageModel_NewEntry Msg_NewEntry (Page_NewEntry.init)
-      "/search" -> case model of
-        PageModel_Search search_page_model -> map_init PageModel_Search Msg_Search (Page_Search.navigate_to url search_page_model)
-        _ ->
-          let
-            (initial_model, initial_cmd) = Page_Search.init
-            (updated_model, extra_cmd) = Page_Search.navigate_to url initial_model
-          in
-            map_init PageModel_Search Msg_Search (updated_model, Cmd.batch [ initial_cmd, extra_cmd ])
-      _ -> (PageModel_NotFound, Cmd.none)
+navigate_to url model =
+  let
+    s = Url.Parser.s
+    map = Url.Parser.map
+    int = Url.Parser.int
+
+    route = Url.Parser.oneOf
+      [ s "new_entry" |> map (map_init PageModel_NewEntry Msg_NewEntry Page_NewEntry.init)
+      , s "search" |> map 
+        (case model of
+          PageModel_Search search_page_model -> map_init PageModel_Search Msg_Search (Page_Search.navigate_to url search_page_model)
+          _ ->
+            let
+              (initial_model, initial_cmd) = Page_Search.init
+              (updated_model, extra_cmd) = Page_Search.navigate_to url initial_model
+            in
+              map_init PageModel_Search Msg_Search (updated_model, Cmd.batch [ initial_cmd, extra_cmd ])
+        )
+      , s "edit" </> int |> map (\i -> map_init PageModel_Edit Msg_Edit (Page_NewEntry.edit i))
+      ]
+  in
+    Url.Parser.parse route url |> Maybe.withDefault (PageModel_NotFound, Cmd.none)
 
 init : Navigation.Key -> Url -> (Model, Cmd Msg)
 init key url = 
@@ -78,9 +92,9 @@ update msg model = case msg of
 
   Msg_UrlChange url ->
     let 
-        (new_page_model, cmd) = navigate_to url model.page_model
-      in
-        ({ model | page_model = new_page_model }, cmd)
+      (new_page_model, cmd) = navigate_to url model.page_model
+    in
+      ({ model | page_model = new_page_model }, cmd)
 
   Msg_NewEntry new_entry_page_msg -> case model.page_model of 
     PageModel_NewEntry new_entry_page_model -> 
@@ -93,24 +107,35 @@ update msg model = case msg of
   Msg_Search search_page_msg -> case model.page_model of
     PageModel_Search search_page_model -> 
       let
-        (new_model, cmd) = Page_Search.update model.navigation_key search_page_msg search_page_model
+        (new_model, cmd) = Page_Search.update search_page_msg search_page_model
       in
         ({ model | page_model = PageModel_Search new_model }, Cmd.map Msg_Search cmd)
     _ -> (model, Cmd.none)
 
+  Msg_Edit edit_page_msg -> case model.page_model of 
+    PageModel_Edit edit_page_model ->
+      let
+        (new_model, cmd) = Page_NewEntry.update edit_page_msg edit_page_model
+      in
+        ({ model | page_model = PageModel_Edit new_model }, Cmd.map Msg_Edit cmd)
+    _ -> (model, Cmd.none)
+
 view : Model -> Document Msg
 view model =
-  { title = (case model.page_model of
-    PageModel_NotFound -> Page_NotFound.title
-    PageModel_NewEntry _ -> Page_NewEntry.title
-    PageModel_Search _ -> Page_Search.title)
-    ++ " | localhost"
+  { title = 
+    (case model.page_model of
+      PageModel_NotFound -> Page_NotFound.title
+      PageModel_NewEntry _ -> Page_NewEntry.title
+      PageModel_Search _ -> Page_Search.title
+      PageModel_Edit _ -> "Editar"
+    ) ++ " | localhost"
   , body = 
     let 
       page_content = case model.page_model of
         PageModel_NotFound -> Page_NotFound.view
         PageModel_NewEntry new_entry_page_model -> UI.map Msg_NewEntry <| Page_NewEntry.view new_entry_page_model
         PageModel_Search search_page_model -> UI.map Msg_Search <| Page_Search.view search_page_model
+        PageModel_Edit edit_page_model -> UI.map Msg_Edit <| Page_NewEntry.view edit_page_model
     in
       [ UI.layout 
           [ Background.color Config.background_color

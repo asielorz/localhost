@@ -1,9 +1,7 @@
 module Page_Search exposing (Model, Msg, title, init, update, view, navigate_to)
 
-import Browser.Navigation as Navigation
 import Element as UI exposing (px, rgb, rgba)
 import Element.Font as Font
-import Element.Input as Input
 import Element.Border as Border
 import Element.Events as Events
 import Element.Background as Background
@@ -75,7 +73,6 @@ type Msg
   | Msg_DateSavedUntilChanged DatePicker.Msg
   | Msg_ExceptionalChanged Bool
   | Msg_OpenComboChanged (Maybe ComboId)
-  | Msg_Search
 
   -- Http from server
   | Msg_ReceivedSearchResults (Result Http.Error (List Entry))
@@ -134,7 +131,7 @@ init =
 
 navigate_to : Url -> Model -> (Model, Cmd Msg)
 navigate_to url model = case url.query of
-    Nothing -> (model, Cmd.none)
+    Nothing -> (model, texts_query_command "")
     Just query_string -> case SearchQuery.search_ui_state_from_query query_string of
       Nothing -> (model, Cmd.none)
       Just query -> 
@@ -165,8 +162,8 @@ texts_query_command query_string = Http.get
   , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
   }
 
-update : Navigation.Key -> Msg -> Model -> (Model, Cmd Msg)
-update navigation_key msg model = case msg of
+update : Msg -> Model -> (Model, Cmd Msg)
+update msg model = case msg of
   Msg_Noop ->
     (model, Cmd.none)
 
@@ -211,30 +208,6 @@ update navigation_key msg model = case msg of
 
   Msg_OpenComboChanged new_open_combo ->
      ({ model | currently_open_combo = new_open_combo }, Cmd.none)
-
-  Msg_Search ->
-    let 
-      query = SearchQuery.search_query
-        { link = model.link
-        , title = model.title
-        , author = model.author
-        , description = model.description
-        , category = model.category
-        , works_mentioned = model.works_mentioned
-        , themes = model.themes
-        , tags = model.tags
-        , published_between_from = DatePicker.date model.published_between_from
-        , published_between_until = DatePicker.date model.published_between_until
-        , saved_between_from = DatePicker.date model.saved_between_from
-        , saved_between_until = DatePicker.date model.saved_between_until
-        , exceptional = model.exceptional
-        }
-    in
-      ( model
-      , if String.isEmpty query
-        then Cmd.batch [ Navigation.pushUrl navigation_key ("/search" ++ query), texts_query_command query ] -- Special case for when search is pressed with no args.
-        else Navigation.pushUrl navigation_key ("/search" ++ query)
-    )
 
   Msg_ReceivedSearchResults new_results -> case new_results of
     Ok (actual_results) -> ({ model | entries = actual_results }, Cmd.none)
@@ -286,16 +259,34 @@ exceptional_toggle_button is_exceptional = fontawesome_text
   ]
   "\u{f005}" --fa-star
 
-search_button: UI.Element Msg
-search_button = Input.button 
-  (Config.widget_common_attributes ++
-  [ Background.color (rgb 0 0.6 0)
-  , Font.center
-  , UI.width UI.fill
-  ])
-  { onPress = Just Msg_Search
-  , label = UI.text "Buscar"
-  }
+search_button: Model -> UI.Element Msg
+search_button model = 
+  let
+    query = SearchQuery.search_query
+      { link = model.link
+      , title = model.title
+      , author = model.author
+      , description = model.description
+      , category = model.category
+      , works_mentioned = model.works_mentioned
+      , themes = model.themes
+      , tags = model.tags
+      , published_between_from = DatePicker.date model.published_between_from
+      , published_between_until = DatePicker.date model.published_between_until
+      , saved_between_from = DatePicker.date model.saved_between_from
+      , saved_between_until = DatePicker.date model.saved_between_until
+      , exceptional = model.exceptional
+      }
+  in
+    UI.link 
+      (Config.widget_common_attributes ++
+      [ Background.color (rgb 0 0.6 0)
+      , Font.center
+      , UI.width UI.fill
+      ])
+      { url = "/search" ++ query
+      , label = UI.text "Buscar"
+      }
 
 view_search_column : List (UI.Attribute Msg) -> Model -> UI.Element Msg
 view_search_column attributes model = UI.column 
@@ -336,7 +327,7 @@ view_search_column attributes model = UI.column
     [ DatePicker.view Config.widget_common_attributes Msg_DateSavedFromChanged model.saved_between_from
     , DatePicker.view Config.widget_common_attributes Msg_DateSavedUntilChanged model.saved_between_until
     ]
-  , search_button
+  , search_button model
   ]
 
 view_model : Model -> UI.Element Msg
