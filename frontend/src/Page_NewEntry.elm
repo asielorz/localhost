@@ -195,6 +195,7 @@ type Msg
   -- Server
   | Msg_ResponseToSendArrived (Result Http.Error ())
   | Msg_ResponseToSaveArrived (Result Http.Error ())
+  | Msg_ResponseToDeleteArrived (Result Http.Error ())
 
   | Msg_ReceivedCategories (Result Http.Error (List String))
   | Msg_ReceivedAuthors (Result Http.Error (List String))
@@ -288,8 +289,20 @@ update msg model = case msg of
   Msg_Save ->
     save_button_clicked model
 
-  Msg_Delete ->
-    (model, Cmd.none)
+  Msg_Delete -> case model.edited_entry of
+    Nothing -> (model, Cmd.none)
+    Just edited_entry ->
+      (model
+      , Http.request
+        { method = "DELETE"
+        , url = "http://localhost:8080/api/texts/" ++ String.fromInt edited_entry.id
+        , headers = []
+        , body = Http.emptyBody
+        , expect = Http.expectWhatever Msg_ResponseToDeleteArrived
+        , timeout = Nothing
+        , tracker = Nothing
+        }
+      )
 
   Msg_CloseResponseDialog close_function -> 
     close_function model
@@ -348,6 +361,10 @@ update msg model = case msg of
   Msg_ResponseToSaveArrived response -> case response of
     Ok _ -> ({ model | app_state = notify_error "Los cambios a la entrada se han guardado correctamente." }, Cmd.none)
     Err err -> ({ model | app_state = notify_error ("Error al guardar cambios:\n" ++ http_error_to_string err) }, Cmd.none)
+
+  Msg_ResponseToDeleteArrived response -> case response of
+    Ok _ -> ({ model | app_state = State_Notify { message = "La entrada se ha borrado.", close = do_not_close } }, Cmd.none)
+    Err err -> ({ model | app_state = notify_error ("Error al borrar la entrada:\n" ++ http_error_to_string err) }, Cmd.none)
 
   Msg_ReceivedCategories result ->
     case result of
@@ -506,7 +523,14 @@ save_button_clicked model = case make_new_entry_form model of
         send_form_task =
           if form == edited_entry.original_form
             then Task.succeed ()
-            else Task.succeed () -- To do, implement put task for forms
+            else Http.task
+              { method = "PUT"
+              , url = "http://localhost:8080/api/texts/" ++ String.fromInt edited_entry.id
+              , headers = []
+              , body = Http.jsonBody <| NewEntry.to_json form
+              , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+              , timeout = Nothing
+              }
 
         send_image_task =
           if model.image == edited_entry.original_image
@@ -531,7 +555,6 @@ row name content = UI.row [ UI.paddingEach { top = 30, bottom = 0, left = 0, rig
   [ UI.el [ Font.color (rgb 1 1 1), UI.alignLeft, UI.alignTop, UI.width (px 300), UI.paddingEach { top = 15, bottom = 0, left = 0, right = 0 } ] (UI.text name)
   , UI.el [ UI.width (px 500) ] content
   ]
-
 
 entry_type_display_string : EntryType -> String
 entry_type_display_string entry_type = case entry_type of

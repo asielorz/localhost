@@ -413,7 +413,7 @@ impl Requests
         println!("Options!");
         return Response::builder()
             .status(StatusCode::NO_CONTENT)
-            .header("Allow", "OPTIONS, GET, PUT, POST")
+            .header("Allow", "OPTIONS, GET, PUT, POST, DELETE")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .header("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST")
@@ -517,6 +517,95 @@ impl Requests
         } else {
             return Requests::bad_request_response(&format!("Could not convert '{}' to an entry id", path));
         }
+    }
+
+    async fn put_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+        match serde_json::from_slice(&whole_body) as Result<NewEntryForm, serde_json::Error> {
+            Ok(form) => {
+                let state = STATE.lock().unwrap();
+
+                if let Some(database) = &state.database {
+                    let result = database.execute(
+                        "
+                        UPDATE entries
+                        SET link = ?1,
+                            title = ?2,
+                            description = ?3,
+                            author = ?4,
+                            category = ?5,
+                            themes = ?6,
+                            works_mentioned = ?7,
+                            tags = ?8,
+                            date_published = ?9,
+                            date_saved = ?10,
+                            exceptional = ?11
+                        WHERE entry_id = ?12;
+                        ",
+                        rusqlite::params!
+                            [ &form.link
+                            , &form.title
+                            , &form.description
+                            , &form.author
+                            , &form.category 
+                            , &format_as_sql_array(&form.themes) 
+                            , &format_as_sql_array(&form.works_mentioned) 
+                            , &format_as_sql_array(&form.tags)
+                            , &format_as_sql_date(form.date_published)
+                            , &format_as_sql_date(today())
+                            , form.exceptional
+                            , entry_id
+                            ]
+                    );
+
+                    if let Err(err) = result {
+                        println!("Entry update failed: {}", err);
+                        return Requests::internal_server_error_response();
+                    }
+
+                    Response::builder()
+                        .status(StatusCode::NO_CONTENT)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
+                        .body(Body::from(""))
+                        .or_else(|_| Requests::internal_server_error_response())
+                } else {
+                    Requests::internal_server_error_response()
+                }
+            },
+            Err(err) => Requests::bad_request_response(&format!("{}", err))
+        }
+    }
+
+    fn delete_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+
+        let result = database.execute(
+            "
+            DELETE FROM entries
+            WHERE entry_id = ?
+            ",
+            rusqlite::params![entry_id]
+        );
+
+        if let Err(err) = result {
+            println!("Entry delete failed: {}", err);
+            return Requests::not_found_404_response();
+        }
+
+        Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .body(Body::from(""))
+            .or_else(|_| Requests::internal_server_error_response())
     }
 
     fn get_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
@@ -691,18 +780,19 @@ impl Requests
                         INSERT INTO entries (link, title, description, author, category, themes, works_mentioned, tags, date_published, date_saved, exceptional)
                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
                         ",
-                        rusqlite::params![ &form.link
-                        , &form.title
-                        , &form.description
-                        , &form.author
-                        , &form.category 
-                        , &format_as_sql_array(&form.themes) 
-                        , &format_as_sql_array(&form.works_mentioned) 
-                        , &format_as_sql_array(&form.tags)
-                        , &format_as_sql_date(form.date_published)
-                        , &format_as_sql_date(today())
-                        , form.exceptional
-                        ]
+                        rusqlite::params!
+                            [ &form.link
+                            , &form.title
+                            , &form.description
+                            , &form.author
+                            , &form.category 
+                            , &format_as_sql_array(&form.themes) 
+                            , &format_as_sql_array(&form.works_mentioned) 
+                            , &format_as_sql_array(&form.tags)
+                            , &format_as_sql_date(form.date_published)
+                            , &format_as_sql_date(today())
+                            , form.exceptional
+                            ]
                     );
 
                     if let Err(err) = result {
@@ -779,6 +869,8 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
 
         (&Method::GET, "/api/texts") => Requests::get_texts(req),
         (&Method::GET, path) if is_single_entry_path(path) => Requests::get_single_text(req),
+        (&Method::PUT, path) if is_single_entry_path(path) => Requests::put_single_text(req).await,
+        (&Method::DELETE, path) if is_single_entry_path(path) => Requests::delete_single_text(req),
         (&Method::GET, path) if is_entry_image_path(path) => Requests::get_entry_image(req),
         (&Method::PUT, path) if is_entry_image_path(path) => Requests::put_entry_image(req).await,
         (&Method::POST, "/api/texts") => Requests::post_texts(req).await,
