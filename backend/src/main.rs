@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server, Method, StatusCode};
+use hyper_tls::HttpsConnector;
 use serde_json;
 use serde::{Serialize, Deserialize};
 use std::fs;
@@ -62,26 +63,30 @@ fn month_to_index(month : Month) -> i32
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Default)]
-struct Date {
+struct Date
+{
     day : i32,
     month : Month,
     year : i32
 }
 
-impl Ord for Date {
+impl Ord for Date 
+{
     fn cmp(&self, other: &Self) -> Ordering {
         return (self.year, self.month, self.day).cmp(&(other.year, other.month, other.day));
     }
 }
 
-impl PartialOrd for Date {
+impl PartialOrd for Date 
+{
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         return Some(self.cmp(other));
     }
 }
 
 #[derive(Deserialize, Debug)]
-struct NewEntryForm {
+struct NewEntryForm 
+{
     link : String,
     title : String,
     description : String,
@@ -95,7 +100,8 @@ struct NewEntryForm {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-struct Entry {
+struct Entry 
+{
     id : i64,
     link : String,
     title : String,
@@ -109,6 +115,12 @@ struct Entry {
     date_saved : Date,
     exceptional : bool,
     image : Option<String>
+}
+
+#[derive(Deserialize)]
+struct ImageLinkForm 
+{
+    image_url : String
 }
 
 fn parse_date_query_argument(query_argument : &str) -> Option<Date>
@@ -397,6 +409,21 @@ fn get_entry_id_from_path(path : &str) -> i64 {
     unreachable!();
 }
 
+fn get_header_case_insensitive<'a>(headers: &'a hyper::HeaderMap, target_header: &str) -> Option<&'a hyper::header::HeaderValue> 
+{
+    let target_lowercase = target_header.to_lowercase();
+    return headers.iter()
+        .find(|(name, _)| name.as_str().to_lowercase() == target_lowercase)
+        .map(|(_, value)| value);
+}
+
+async fn make_http_request(request : hyper::Request<hyper::Body>) -> hyper::Result<hyper::Response<hyper::Body>>
+{
+    let https = HttpsConnector::new();
+    let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+    return client.request(request).await;
+}
+
 lazy_static! 
 {
     static ref STATE: Mutex<State> = Mutex::new(State::new());
@@ -416,7 +443,7 @@ impl Requests
             .header("Allow", "OPTIONS, GET, PUT, POST, DELETE")
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
-            .header("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST")
+            .header("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST, DELETE")
             .body(Body::from(""))
             .or_else(|_| Requests::internal_server_error_response());
     }
@@ -662,19 +689,58 @@ impl Requests
     {
         let entry_id = get_entry_id_from_path(req.uri().path());
 
-        match req.headers().get("Content-Type") {
+        let is_content_in_body : bool = match get_header_case_insensitive(req.headers(), "Content-Type") {
             None => { return Requests::bad_request_response("Missing content type hader"); }
             Some(value) => match value.to_str().unwrap() {
                 // TO DO: Save image type.
-                "image/png" => (),
-                "image/jpeg" => (),
-                "image/gif" => (),
-                "image/bmp" => (),
+                "image/png" => true,
+                "image/jpeg" => true,
+                "image/gif" => true,
+                "image/bmp" => true,
+                "application/json" => false,
                 other => { return Requests::bad_request_response(&format!("Unsuported content type: {}", other)); }
             }
         };
 
         let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+
+        let image_bytes = if is_content_in_body {
+            whole_body
+        } else {
+            match serde_json::from_slice(&whole_body) as Result<ImageLinkForm, serde_json::Error> {
+                Ok(form) => { 
+                    let request = hyper::Request::builder()
+                        .method(hyper::Method::GET)
+                        .uri(&form.image_url)
+                        .header("user-agent", "localhost/0.1.0")
+                        .body(hyper::Body::from(""))
+                        .unwrap();
+
+                    let response = match make_http_request(request).await {
+                        Ok(r) => r,
+                        Err(err) => {
+                            println!("Request failed: {}", err);
+                            Err(err)?
+                        }
+                    };
+
+                    match get_header_case_insensitive(response.headers(), "Content-Type") {
+                        None => { return Requests::bad_request_response(&format!("Missing content type header at link {}.", &form.image_url)); }
+                        Some(value) => match value.to_str().unwrap() {
+                            // TO DO: Save image type.
+                            "image/png" => (),
+                            "image/jpeg" => (),
+                            "image/gif" => (),
+                            "image/bmp" => (),
+                            other => { return Requests::bad_request_response(&format!("Unsuported content type {} at link {}", other, &form.image_url)); }
+                        }
+                    }
+
+                    hyper::body::to_bytes(response.into_body()).await?
+                }
+                Err(err) => { return Requests::bad_request_response(&format!("{}", err));  }
+            }
+        };
 
         let state = STATE.lock().unwrap();
         let database = state.database.as_ref().unwrap();
@@ -684,7 +750,7 @@ impl Requests
             SET image = ?
             WHERE entry_id = ?
             ",
-            rusqlite::params![rusqlite::blob::ZeroBlob(whole_body.len() as i32), entry_id]
+            rusqlite::params![rusqlite::blob::ZeroBlob(image_bytes.len() as i32), entry_id]
         ) {
             // No values where modified.
             Ok(0) => { return Requests::not_found_404_response(); }
@@ -699,7 +765,7 @@ impl Requests
             Err(_) => { return Requests::internal_server_error_response(); }
         };
 
-        if let Err(_) = blob.write_at(&whole_body, 0) {
+        if let Err(_) = blob.write_at(&image_bytes, 0) {
             return Requests::internal_server_error_response();
         };
 
@@ -709,6 +775,35 @@ impl Requests
             .header("Access-Control-Allow-Headers", "*")
             .header("Content-Type", "application/json")
             .body(Body::from(format!(r#"{{"success":true,"link":"http://localhost:8080/api/texts/{}/image"}}"#, entry_id)))
+            .or_else(|_| Requests::internal_server_error_response())
+    }
+
+    fn delete_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+
+        let result = database.execute(
+            "
+            UPDATE entries
+            SET image = NULL
+            WHERE entry_id = ?
+            ",
+            rusqlite::params![entry_id]
+        );
+
+        if let Err(err) = result {
+            println!("Image delete failed: {}", err);
+            return Requests::not_found_404_response();
+        }
+
+        Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .body(Body::from(""))
             .or_else(|_| Requests::internal_server_error_response())
     }
 
@@ -873,6 +968,7 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         (&Method::DELETE, path) if is_single_entry_path(path) => Requests::delete_single_text(req),
         (&Method::GET, path) if is_entry_image_path(path) => Requests::get_entry_image(req),
         (&Method::PUT, path) if is_entry_image_path(path) => Requests::put_entry_image(req).await,
+        (&Method::DELETE, path) if is_entry_image_path(path) => Requests::delete_entry_image(req),
         (&Method::POST, "/api/texts") => Requests::post_texts(req).await,
 
         (&Method::GET, "/api/categories") => Requests::get_categories(),

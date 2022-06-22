@@ -27,6 +27,8 @@ import Bytes exposing (Bytes)
 import Fontawesome exposing (fontawesome_text)
 import Url
 import Entry exposing (Entry)
+import Json.Encode
+import Bytes.Decode
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)
@@ -56,6 +58,10 @@ edit id =
       , Http.get 
         { url = "http://localhost:8080/api/texts/" ++ String.fromInt id
         , expect = Http.expectJson Msg_ReceivedEntryToEdit Entry.from_json 
+        }
+      , Http.get 
+        { url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+        , expect = Http.expectBytesResponse Msg_ReceivedImageToEdit (\response -> resolve (\bytes -> Ok bytes) response)
         }
       ]
     )
@@ -190,6 +196,7 @@ type Msg
   | Msg_ImageUrlButtonClicked
   | Msg_InputUrlChanged String
   | Msg_ImageUrlChosen String
+  | Msg_ImageClearButtonClicked
   | Msg_ImageResetButtonClicked
 
   -- Server
@@ -349,8 +356,12 @@ update msg model = case msg of
   Msg_ImageUrlChosen new_url ->
     ({ model | image = Image_Url new_url, app_state = State_Editing }, Cmd.none)
 
-  Msg_ImageResetButtonClicked ->
+  Msg_ImageClearButtonClicked ->
     ({ model | image = Image_None }, Cmd.none)
+
+  Msg_ImageResetButtonClicked -> case model.edited_entry of
+    Nothing -> (model, Cmd.none)
+    Just edited_entry -> ({ model | image = edited_entry.original_image }, Cmd.none)
 
   -- Server
 
@@ -425,15 +436,23 @@ update msg model = case msg of
 
   Msg_ReceivedImageToEdit result -> 
     case result of
-      Ok received_image ->
-        ( { model | edited_entry = model.edited_entry |> Maybe.map (\e -> { e | original_image = Image_File 
-          { url = "http://localhost:8080/" ++ String.fromInt e.id ++ "/image"
-          , bytes = received_image 
-          , content_type = "image/png"
-          } }) }
-        , Cmd.none
-        )
-      Err _ -> (model, Cmd.none)
+      Ok received_image -> case model.edited_entry of
+        Nothing -> (model, Cmd.none)
+        Just edited_entry ->
+          let
+            new_image = Image_File 
+              { url = "http://localhost:8080/api/texts/" ++ String.fromInt edited_entry.id ++ "/image"
+              , bytes = received_image 
+              , content_type = "image/png"
+              }
+          in 
+            ( { model 
+              | edited_entry = model.edited_entry |> Maybe.map (\e -> { e | original_image = new_image })
+              , image = new_image 
+              }
+            , Cmd.none
+            )
+      Err err -> ({ model | app_state = notify_error <| "Error at requesting image: " ++ http_error_to_string err }, Cmd.none)
 
 http_error_to_string : Http.Error -> String
 http_error_to_string error = case error of
@@ -477,8 +496,14 @@ resolve toResult response =
           Http.BadStatus_ metadata _ -> Err (Http.BadStatus metadata.statusCode)
           Http.GoodStatus_ _ body -> Result.mapError Http.BadBody (toResult body)
 
-put_image_task : EntryImage -> Int -> Task Http.Error ()
-put_image_task image id = 
+-- If delete_if_none is true, then Image_None means that a DELETE requests should be sent
+-- to that image resource. Otherwise, it means that Image_None is a noop. When creating a
+-- new entry, there is no point in sending a request for Image_None because not having an
+-- image is already the default. However, when updating an entry, the user may want to delete
+-- the image of an entry and make that entry have no image, so Image_None needs to send a
+-- DELETE request in that case.
+put_image_task : { delete_if_none : Bool } -> EntryImage -> Int -> Task Http.Error ()
+put_image_task args image id = 
   case image of
     Image_File image_file -> Http.task
       { method = "PUT"
@@ -488,7 +513,25 @@ put_image_task image id =
       , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
       , timeout = Nothing
       }
-    _ -> Task.succeed ()
+    Image_Url url -> Http.task
+      { method = "PUT"
+      , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+      , headers = []
+      , body = Http.jsonBody <| Json.Encode.object [ ("image_url", Json.Encode.string url) ]
+      , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+      , timeout = Nothing
+      }
+    Image_None -> 
+      if args.delete_if_none
+        then Http.task
+          { method = "DELETE"
+          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+          , headers = []
+          , body = Http.emptyBody
+          , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+          , timeout = Nothing
+          }
+        else Task.succeed ()
 
 send_button_clicked : Model -> (Model, Cmd Msg)
 send_button_clicked model = case make_new_entry_form model of
@@ -503,7 +546,7 @@ send_button_clicked model = case make_new_entry_form model of
           (\body -> Json.Decode.decodeString (Json.Decode.field "id" Json.Decode.int) body |> Result.mapError (\err -> Json.Decode.errorToString err))
         , timeout = Nothing
         }
-        |> Task.andThen (put_image_task model.image)
+        |> Task.andThen (put_image_task { delete_if_none = False } model.image)
     in
       (model
       , Task.attempt Msg_ResponseToSendArrived task 
@@ -535,7 +578,7 @@ save_button_clicked model = case make_new_entry_form model of
         send_image_task =
           if model.image == edited_entry.original_image
             then Task.succeed ()
-            else put_image_task model.image edited_entry.id
+            else put_image_task { delete_if_none = True } model.image edited_entry.id
         
         command = Task.sequence [ send_form_task, send_image_task ]
           |> Task.map (\_ -> ()) -- Discard result. The result is a List () anyway so we don't really care
@@ -695,8 +738,8 @@ view_main_column form = UI.column
   , row ""                      <| if form.edited_entry == Nothing then send_button else save_and_delete_buttons
   ]
 
-view_image : EntryImage -> UI.Element Msg
-view_image image_source = 
+view_image : Maybe EditedEntry -> EntryImage -> UI.Element Msg
+view_image edited_entry image_source = 
   let
     button_attributes = Config.widget_common_attributes ++ 
       [ Background.color <| Utils.set_alpha 0.5 Config.widget_background_color
@@ -718,9 +761,15 @@ view_image image_source =
           , label = fontawesome_text button_attributes "\u{f0ac}" -- globe
           }
         , Input.button []
-          { onPress = Just Msg_ImageResetButtonClicked
+          { onPress = Just Msg_ImageClearButtonClicked
           , label = fontawesome_text button_attributes "\u{f1f8}" -- trash
           }
+        , case edited_entry of
+          Nothing -> UI.none
+          Just _ -> Input.button []
+            { onPress = Just Msg_ImageResetButtonClicked
+            , label = fontawesome_text button_attributes "\u{f0e2}" -- arrow-rotate-left
+            }
         ]
       ]
       <| case image_source of
@@ -784,7 +833,7 @@ view_side_column form = UI.column
   , UI.paddingEach { top = 35, bottom = 0, left = 0, right = 0 }
   , UI.spacing 10
   ]
-  [ view_image form.image
+  [ view_image form.edited_entry form.image
   , view_category form.category form.all_categories form.currently_open_combo
   , view_string_list form.works_mentioned form.all_works "Obras mencionadas" ComboId_WorkMentioned form.currently_open_combo Msg_WorksMentioned Msg_OpenComboChanged
   , view_string_list form.themes form.all_themes "Temas" ComboId_Theme form.currently_open_combo Msg_Themes Msg_OpenComboChanged
