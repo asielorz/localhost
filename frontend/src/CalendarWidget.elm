@@ -11,7 +11,6 @@ import Fontawesome exposing (fontawesome_text)
 import DateUtils exposing (..)
 import Utils
 import List
-import Debug exposing (toString)
 import Config
 
 widget_background_color : UI.Color
@@ -144,7 +143,7 @@ view_calendar_day message selected_date maybe_date = case maybe_date of
     , Border.width 1
     , UI.mouseOver [ Background.color <| if selected_date == Just date then selected_hovered_color else (rgb 0.3 0.3 0.3) ]
     ]
-    { label = UI.el [ UI.centerX, UI.centerY ] (date |> Calendar.getDay |> toString |> UI.text)
+    { label = UI.el [ UI.centerX, UI.centerY ] (date |> Calendar.getDay |> String.fromInt |> UI.text)
     , onPress = Just <| message <| Msg_DateSelected date
     }
 

@@ -983,8 +983,8 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
 }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    
+pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
+{
     let connection = rusqlite::Connection::open(DATABASE_FILENAME)?;
 
     connection.execute(

@@ -82,7 +82,8 @@ view_string_list list suggestions name id currently_open_combo message change_op
     , view_element = (\i s -> input_box_with_suggestions [ Font.size 15, UI.padding 7 ] 
       { text = s
       , suggestions = suggestions 
-      , message = (\new -> ListWidget.EditElement new)
+      -- Filter out '|' because it is forbidden in strings that are part of lists as we use it as a delimiter when serializing lists of strings as strings.
+      , message = ListWidget.EditElement << String.filter (\c -> c /= '|')
       , id = id i
       , currently_open_id = currently_open_combo
       , change_open = (\new_state -> ListWidget.PassThrough <| change_open new_state)

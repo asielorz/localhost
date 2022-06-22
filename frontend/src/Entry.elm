@@ -106,12 +106,19 @@ view_tags_wrapped chunk_by entry = Utils.grid
   }
 
 view_description : Entry -> UI.Element msg
-view_description entry = UI.paragraph
-  [ Font.size 15
-  , Font.color (rgb 0.7 0.7 0.7)
-  , Font.justify
-  ]
-  [ UI.text entry.description ]
+view_description entry = 
+  let
+    paragraphs = entry.description 
+      |> String.split "\n"
+      |> List.filter (not << String.isEmpty)
+  in
+    UI.column
+      [ Font.size 15
+      , Font.color (rgb 0.7 0.7 0.7)
+      , Font.justify
+      , UI.spacing 10
+      ]
+      <| List.map (\p -> UI.paragraph [] [ UI.text p ]) paragraphs
 
 view_entry_data : (Entry -> msg) -> Entry -> UI.Element msg
 view_entry_data message entry = UI.column 
