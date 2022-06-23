@@ -1,4 +1,4 @@
-module NewEntry exposing (Form, to_json, validate)
+module NewEntry exposing (Type(..), Form, to_json, validate)
 
 import Calendar
 import Json.Encode as Json
@@ -6,6 +6,13 @@ import Url
 import DateUtils
 import Utils
 import Time
+
+type Type 
+  = Type_Article { pages : Int }
+  | Type_Paper { pages : Int }
+  | Type_Book { pages : Int }
+  | Type_Video { length_in_seconds : Int }
+  | Type_Audio { length_in_seconds : Int }
 
 type alias Form =
   { link : String
@@ -18,7 +25,18 @@ type alias Form =
   , tags : List String
   , date_published : Maybe Calendar.Date
   , exceptional : Bool
+  , entry_type : Type
   }
+
+type_to_json : Type -> Json.Value
+type_to_json entry_type = Json.object
+  [ case entry_type of
+    Type_Article t -> ("Article", Json.object [ ("pages", Json.int t.pages) ])
+    Type_Paper t -> ("Paper", Json.object [ ("pages", Json.int t.pages) ])
+    Type_Book t -> ("Book", Json.object [ ("pages", Json.int t.pages) ])
+    Type_Video t -> ("Video", Json.object [ ("length_in_seconds", Json.int t.length_in_seconds) ])
+    Type_Audio t -> ("Audio", Json.object [ ("length_in_seconds", Json.int t.length_in_seconds) ])
+  ]
 
 to_json : Form -> Json.Value
 to_json form = Json.object
@@ -33,6 +51,7 @@ to_json form = Json.object
     -- A Nothing should never happen here because validate detects that the date is not nothing.
   , ("date_published", DateUtils.date_to_json (Maybe.withDefault (Calendar.fromPosix <| Time.millisToPosix 0) form.date_published))
   , ("exceptional", Json.bool form.exceptional)
+  , ("entry_type", type_to_json form.entry_type)
   ]
 
 is_url : String -> Bool

@@ -19,6 +19,7 @@ valid_entry_json = """
 , "date_published" : { "day" : 17, "month" : "March", "year" : 1965 }
 , "date_saved" : { "day" : 1, "month":"April", "year":2000}
 , "exceptional" : true
+, "image" : null
 }
 """
 

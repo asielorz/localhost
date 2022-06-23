@@ -28,7 +28,6 @@ import Fontawesome exposing (fontawesome_text)
 import Url
 import Entry exposing (Entry)
 import Json.Encode
-import Bytes.Decode
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)
@@ -68,10 +67,6 @@ edit id =
 
 title : String
 title = "Nueva entrada"
-
-type EntryType 
-  = Text { pages : Int }
-  | Video { length_in_seconds : Int }
 
 type Backup = NoBackup | Automatic | Manual (Maybe String)
 
@@ -114,10 +109,11 @@ type alias Model =
   , works_mentioned : List String
   , tags : List String
   , date_published : DatePicker.State
-  , entry_type : EntryType
+  , entry_type : NewEntry.Type
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
   , app_state : AppState
+  , type_metadata_input_string : String
 
   -- If this is none, a new entry is being added. If it's set, an existing entry is being edited.
   -- This alters the behavior of the send button, which will either post or put.
@@ -144,10 +140,11 @@ default_model =
   , works_mentioned = []
   , tags = []
   , date_published = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , entry_type = Text { pages = 0 }
+  , entry_type = NewEntry.Type_Article { pages = 0 }
   , exceptional = False
   , currently_open_combo = Nothing
   , app_state = State_Editing
+  , type_metadata_input_string = ""
 
   , edited_entry = Nothing
 
@@ -176,7 +173,8 @@ type Msg
   | Msg_AuthorChanged String
   | Msg_DescriptionChanged String
   | Msg_CategoryChanged String
-  | Msg_TypeCombo (Combo.Msg EntryType)
+  | Msg_TypeCombo (Combo.Msg NewEntry.Type)
+  | Msg_TypeMetadataChanged String
   | Msg_BackupCombo (Combo.Msg Backup)
   | Msg_ExceptionalChanged Bool
   | Msg_WorksMentioned (ListWidget.Msg String)
@@ -214,7 +212,9 @@ type Msg
 
 -- update
 
-set_entry_type : EntryType -> Model -> Model
+sides = { top = 0, bottom = 0, left = 0, right = 0 }
+
+set_entry_type : NewEntry.Type -> Model -> Model
 set_entry_type entry_type model = { model | entry_type = entry_type }
 
 set_open_combo : Maybe ComboId -> Model -> Model
@@ -270,10 +270,53 @@ update msg model = case msg of
     ({ model | category = new_category }, Cmd.none)
 
   Msg_TypeCombo combo_msg ->
-    (Combo.update { set_value = set_entry_type, set_open_combo = set_open_combo, id = ComboId_Type, model = model } combo_msg, Cmd.none)
+    let 
+      updated_model = case combo_msg of
+        Combo.Msg_Select _ -> { model | type_metadata_input_string = "" }
+        _ -> model
+    in
+      ( Combo.update 
+        { set_value = set_entry_type
+        , set_open_combo = set_open_combo
+        , id = ComboId_Type
+        , model = updated_model 
+        }
+        combo_msg
+      , Cmd.none
+      )
   
+  Msg_TypeMetadataChanged new_type_metadata ->
+    let
+      string_to_int str = Maybe.withDefault 0 <| String.toInt str
+
+      parse_duration duration_str = case String.split ":" duration_str of
+        [] -> 0 
+        seconds :: [] -> string_to_int seconds
+        minutes :: seconds :: [] -> 60 * (string_to_int minutes) + (string_to_int seconds)
+        hours :: minutes :: seconds :: _ -> 3600 * (string_to_int hours) + 60 * (string_to_int minutes) + (string_to_int seconds)
+
+      only_digits = new_type_metadata
+        |> String.filter Char.isDigit
+        |> String.left 8
+
+      duration = new_type_metadata
+        |> Utils.remove_all_but_n ":" 2
+        |> String.filter (\c -> Char.isDigit c || c == ':')
+        |> String.left 8
+
+      (fixed, updated_type) = case model.entry_type of
+        NewEntry.Type_Article _ -> (only_digits, NewEntry.Type_Article { pages = string_to_int only_digits })
+        NewEntry.Type_Paper _ -> (only_digits, NewEntry.Type_Paper { pages = string_to_int only_digits })
+        NewEntry.Type_Book _ -> (only_digits, NewEntry.Type_Book { pages = string_to_int only_digits })
+        NewEntry.Type_Video _ -> (duration, NewEntry.Type_Video { length_in_seconds = parse_duration duration })
+        NewEntry.Type_Audio _ -> (duration, NewEntry.Type_Audio { length_in_seconds = parse_duration duration })
+    in
+      ({ model | type_metadata_input_string = fixed, entry_type = updated_type }, Cmd.none)
+
   Msg_BackupCombo combo_msg ->
-    (Combo.update { set_value = set_backup, set_open_combo = set_open_combo, id = ComboId_Backup, model = model } combo_msg, Cmd.none)
+    ( Combo.update { set_value = set_backup, set_open_combo = set_open_combo, id = ComboId_Backup, model = model} combo_msg
+    , Cmd.none
+    )
 
   Msg_ExceptionalChanged new_exceptional ->
     ({ model | exceptional = new_exceptional }, Cmd.none)
@@ -594,22 +637,28 @@ save_button_clicked model = case make_new_entry_form model of
 -- view
 
 row : String -> UI.Element Msg -> UI.Element Msg
-row name content = UI.row [ UI.paddingEach { top = 30, bottom = 0, left = 0, right = 0 } ] 
+row name content = UI.row [ UI.paddingEach { sides | top = 30 } ] 
   [ UI.el [ Font.color (rgb 1 1 1), UI.alignLeft, UI.alignTop, UI.width (px 300), UI.paddingEach { top = 15, bottom = 0, left = 0, right = 0 } ] (UI.text name)
   , UI.el [ UI.width (px 500) ] content
   ]
 
-entry_type_display_string : EntryType -> String
+entry_type_display_string : NewEntry.Type -> String
 entry_type_display_string entry_type = case entry_type of
-  Video _ -> "Vídeo"
-  Text _ -> "Texto"
+  NewEntry.Type_Article _ -> "Artículo"
+  NewEntry.Type_Paper _ -> "Paper"
+  NewEntry.Type_Book _ -> "Libro"
+  NewEntry.Type_Video _ -> "Vídeo"
+  NewEntry.Type_Audio _ -> "Audio"
 
-entry_type_display_fontawesome_icon : EntryType -> String
+entry_type_display_fontawesome_icon : NewEntry.Type -> String
 entry_type_display_fontawesome_icon entry_type = case entry_type of
-  Video _ -> "\u{f03d}" -- fa-video
-  Text _ -> "\u{f15b}" -- fa-file
+  NewEntry.Type_Article _ -> "\u{f15b}" -- fa-file
+  NewEntry.Type_Paper _ -> "\u{f15c}" -- fa-file-lines
+  NewEntry.Type_Book _ -> "\u{f02d}" -- fa-book
+  NewEntry.Type_Video _ -> "\u{f03d}" -- fa-video
+  NewEntry.Type_Audio _ -> "\u{f027}" -- fa-volume-low
 
-type_combo_alternative : EntryType -> UI.Element Msg
+type_combo_alternative : NewEntry.Type -> UI.Element Msg
 type_combo_alternative entry_type = 
   UI.el 
   [ UI.padding 5
@@ -620,16 +669,47 @@ type_combo_alternative entry_type =
     ]
   )
 
-type_combo_button : EntryType -> Maybe ComboId -> UI.Element Msg
-type_combo_button entry_type currently_open_combo = Combo.view 
-  (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 500) ])
-  { combo_state = entry_type
-  , id = ComboId_Type
-  , alternatives = [ Text { pages = 0 }, Video { length_in_seconds = 0 } ]
-  , view_alternative = type_combo_alternative
-  , message = Msg_TypeCombo
-  , currently_open_id = currently_open_combo
-  }
+type_hint_text : NewEntry.Type -> UI.Element msg
+type_hint_text entry_type = 
+  let
+    text = case entry_type of
+      NewEntry.Type_Article _ -> "páginas"
+      NewEntry.Type_Paper _ -> "páginas"
+      NewEntry.Type_Book _ -> "páginas"
+      NewEntry.Type_Video _ -> "segundos"
+      NewEntry.Type_Audio _ -> "segundos"
+  in
+    UI.el 
+      [ UI.centerY
+      , UI.alignRight
+      , Font.color (rgb 0.7 0.7 0.7)
+      , UI.paddingEach { sides | right = 10 }
+      ]
+      <| UI.text text
+
+type_row : NewEntry.Type -> String -> List (UI.Element Msg)
+type_row entry_type input_string = 
+  [ input_box [ UI.inFront <| type_hint_text entry_type ] input_string Msg_TypeMetadataChanged
+  ]
+
+type_combo_button : NewEntry.Type -> String -> Maybe ComboId -> UI.Element Msg
+type_combo_button entry_type input_string currently_open_combo = UI.row [ UI.spacing 10, UI.width UI.fill ]
+  (Combo.view 
+    (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 150) ])
+    { combo_state = entry_type
+    , id = ComboId_Type
+    , alternatives = 
+      [ NewEntry.Type_Article { pages = 0 }
+      , NewEntry.Type_Paper { pages = 0 }
+      , NewEntry.Type_Book { pages = 0 }
+      , NewEntry.Type_Video { length_in_seconds = 0 }
+      , NewEntry.Type_Audio { length_in_seconds = 0 }
+      ]
+    , view_alternative = type_combo_alternative
+    , message = Msg_TypeCombo
+    , currently_open_id = currently_open_combo
+    }
+  :: type_row entry_type input_string)
 
 backup_display_string : Backup -> String
 backup_display_string backup = case backup of
@@ -732,7 +812,7 @@ view_main_column form = UI.column
   , row "Título"                <| input_box [] form.title Msg_TitleChanged
   , row "Autor"                 <| input_box_with_suggestions [] { text = form.author, suggestions = form.all_authors, message = Msg_AuthorChanged, id = ComboId_Author, currently_open_id = form.currently_open_combo, change_open = Msg_OpenComboChanged }
   , row "Fecha de publicación"  <| DatePicker.view Config.widget_common_attributes Msg_DatePublishedChanged form.date_published
-  , row "Tipo"                  <| type_combo_button form.entry_type form.currently_open_combo
+  , row "Tipo"                  <| type_combo_button form.entry_type form.type_metadata_input_string form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.currently_open_combo
   , row "Descripción"           <| multiline_input_box form.description Msg_DescriptionChanged
   , row ""                      <| if form.edited_entry == Nothing then send_button else save_and_delete_buttons
@@ -830,7 +910,7 @@ view_category category all_categories curently_open_combo = UI.column
 view_side_column : Model -> UI.Element Msg
 view_side_column form = UI.column 
   [ UI.alignTop
-  , UI.paddingEach { top = 35, bottom = 0, left = 0, right = 0 }
+  , UI.paddingEach { sides | top = 35 }
   , UI.spacing 10
   ]
   [ view_image form.edited_entry form.image

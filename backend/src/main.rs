@@ -85,6 +85,16 @@ impl PartialOrd for Date
 }
 
 #[derive(Deserialize, Debug)]
+enum EntryType
+{
+    Article { pages : i32 },
+    Paper { pages : i32 },
+    Book { pages : i32 },
+    Video { length_in_seconds : i32 },
+    Audio { length_in_seconds : i32 },
+}
+
+#[derive(Deserialize, Debug)]
 struct NewEntryForm 
 {
     link : String,
@@ -97,6 +107,7 @@ struct NewEntryForm
     tags : Vec<String>,
     date_published : Date,
     exceptional : bool,
+    entry_type : EntryType
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

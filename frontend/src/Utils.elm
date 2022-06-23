@@ -1,6 +1,6 @@
 module Utils exposing (
-  add_if, enumerate, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
-  toupper_first, 
+  add_if, enumerate, at, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
+  toupper_first, remove_all_but_n,
   missing_to_be_a_multiple_of, 
   fail_if_nothing, 
   grid, on_enter, set_alpha
@@ -9,6 +9,7 @@ module Utils exposing (
 import Json.Decode
 import Element as UI
 import Html.Events
+import String exposing (indices)
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on lists
@@ -25,6 +26,9 @@ enumerate_impl index list = case list of
 
 enumerate : List a -> List (Int, a)
 enumerate list = enumerate_impl 0 list
+
+at : Int -> List a -> Maybe a
+at index list = list |> List.drop index |> List.head
 
 remove_at : Int -> List a -> List a
 remove_at index list = List.take index list ++ List.drop (index + 1) list
@@ -67,6 +71,15 @@ toupper_first str =
   if String.isEmpty str
     then ""
     else String.toUpper (String.left 1 str) ++ (String.dropLeft 1 str) 
+
+remove_all_but_n : String -> Int -> String -> String
+remove_all_but_n to_remove max_repetitions str = 
+  let
+    indices = String.indices to_remove str
+  in
+    case at max_repetitions indices of
+      Nothing -> str
+      Just index -> String.left index str ++ String.replace to_remove "" (String.dropLeft index str)
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on numbers

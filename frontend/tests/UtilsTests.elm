@@ -48,6 +48,41 @@ add_if_false = test
     (add_if False 4 [1, 2, 3])
   )
 
+-- at
+
+at_out_of_bounds_is_nothing : Test
+at_out_of_bounds_is_nothing = test
+  "at with an out of bounds index returns Nothing"
+  (\_ -> Expect.equal
+    Nothing
+    (at 15 [1, 2, 3])
+  )
+
+at_size_of_list_is_out_of_bounds : Test
+at_size_of_list_is_out_of_bounds = test
+  "index for at starts at 0 so the size of the list is out of bounds"
+  (\_ -> Expect.equal
+    Nothing
+    (at 3 [1, 2, 3])
+  )
+
+at_0_is_equivalent_to_head : Test
+at_0_is_equivalent_to_head = test
+  "at 0 is equivalent to List.head"
+  (\_ -> Expect.equal
+    (List.head [1, 2, 3])
+    (at 0 [1, 2, 3])
+  )
+
+at_with_an_index_in_bounds_returns_the_element_at_that_index : Test
+at_with_an_index_in_bounds_returns_the_element_at_that_index = test
+  "at with an index in bounds returns the element at that index"
+  (\_ -> Expect.equal
+    (Just 3)
+    (at 2 [1, 2, 3])
+  )
+
+
 -- remove_at
 
 remove : Test
@@ -246,7 +281,7 @@ chunk__remaining_elements = test
 
 adjacent__adjacent_of_empty_list_is_empty_list : Test
 adjacent__adjacent_of_empty_list_is_empty_list = test
-  ("adjacent of an empty list is an empty list")
+  "adjacent of an empty list is an empty list"
   (\_ -> Expect.equal
     []
     (adjacent [])
@@ -254,7 +289,7 @@ adjacent__adjacent_of_empty_list_is_empty_list = test
 
 adjacent__adjacent_of_a_list_of_one_element_is_empty_list : Test
 adjacent__adjacent_of_a_list_of_one_element_is_empty_list = test
-  ("adjacent of a list with a single element is an empty list")
+  "adjacent of a list with a single element is an empty list"
   (\_ -> Expect.equal
     []
     (adjacent [4])
@@ -262,7 +297,7 @@ adjacent__adjacent_of_a_list_of_one_element_is_empty_list = test
 
 adjacent__adjacent_of_a_list_of_two_elements_is_a_list_with_single_pair : Test
 adjacent__adjacent_of_a_list_of_two_elements_is_a_list_with_single_pair = test
-  ("adjacent of a list with two elements is a list with a single pair containing both elements")
+  "adjacent of a list with two elements is a list with a single pair containing both elements"
   (\_ -> Expect.equal
     [(4, 5)]
     (adjacent [4, 5])
@@ -270,7 +305,7 @@ adjacent__adjacent_of_a_list_of_two_elements_is_a_list_with_single_pair = test
 
 adjacent__list_with_many_elements : Test
 adjacent__list_with_many_elements = test
-  ("adjacent of a list with many elements returns a list of all adjacent pairs")
+  "adjacent of a list with many elements returns a list of all adjacent pairs"
   (\_ -> Expect.equal
     [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)]
     (adjacent [1, 2, 3, 4, 5, 6])
@@ -280,7 +315,7 @@ adjacent__list_with_many_elements = test
 
 has_duplicates__an_empty_list_never_has_duplicates : Test
 has_duplicates__an_empty_list_never_has_duplicates = test
-  ("An empty list does not have duplicates")
+  "An empty list does not have duplicates"
   (\_ -> Expect.equal
     False
     (has_duplicates [])
@@ -288,7 +323,7 @@ has_duplicates__an_empty_list_never_has_duplicates = test
 
 has_duplicates__a_list_with_one_element_never_has_duplicates : Test
 has_duplicates__a_list_with_one_element_never_has_duplicates = test
-  ("A list with a single element does not have duplicates")
+  "A list with a single element does not have duplicates"
   (\_ -> Expect.equal
     False
     (has_duplicates [4])
@@ -296,7 +331,7 @@ has_duplicates__a_list_with_one_element_never_has_duplicates = test
 
 has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__false_case : Test
 has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__false_case = test
-  ("A list with two different elements does not have duplicates")
+  "A list with two different elements does not have duplicates"
   (\_ -> Expect.equal
     False
     (has_duplicates [4, 5])
@@ -304,7 +339,7 @@ has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__false
 
 has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__true_case : Test
 has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__true_case = test
-  ("A list with two equal elements has duplicates")
+  "A list with two equal elements has duplicates"
   (\_ -> Expect.equal
     True
     (has_duplicates [4, 4])
@@ -312,7 +347,7 @@ has_duplicates__a_list_with_two_elements_has_duplicates_if_both_are_equal__true_
 
 has_duplicates__a_list_with_no_equal_elements_has_no_duplicates : Test
 has_duplicates__a_list_with_no_equal_elements_has_no_duplicates = test
-  ("A list with no equal elements does not have duplicates")
+  "A list with no equal elements does not have duplicates"
   (\_ -> Expect.equal
     False
     (has_duplicates [4, 2, 0, 5, 7, 3])
@@ -320,7 +355,7 @@ has_duplicates__a_list_with_no_equal_elements_has_no_duplicates = test
   
 has_duplicates__duplicates_do_not_need_to_be_adjacent : Test
 has_duplicates__duplicates_do_not_need_to_be_adjacent = test
-  ("Duplicates do not need to be adjacent")
+  "Duplicates do not need to be adjacent"
   (\_ -> Expect.equal
     True
     (has_duplicates [4, 2, 0, 5, 7, 3, 4])
@@ -330,7 +365,7 @@ has_duplicates__duplicates_do_not_need_to_be_adjacent = test
 
 last__an_empty_list_has_no_last_element : Test
 last__an_empty_list_has_no_last_element = test
-  ("An empty list has no last element")
+  "An empty list has no last element"
   (\_ -> Expect.equal
     Nothing
     (last [])
@@ -338,7 +373,7 @@ last__an_empty_list_has_no_last_element = test
 
 last__last_of_one_element : Test
 last__last_of_one_element = test
-  ("The last element of a list with a single element is that single element")
+  "The last element of a list with a single element is that single element"
   (\_ -> Expect.equal
     (Just 5)
     (last [ 5 ])
@@ -346,8 +381,50 @@ last__last_of_one_element = test
 
 last__last_of_several_elements : Test
 last__last_of_several_elements = test
-  ("The last element of a list with several elements is the last element in the list")
+  "The last element of a list with several elements is the last element in the list"
   (\_ -> Expect.equal
     (Just 8)
     (last [ 5, 6, 3, 8 ])
+  )
+
+-- remove_all_but_n
+
+remove_all_but_n_of_empty_string_equals_empty_string : Test
+remove_all_but_n_of_empty_string_equals_empty_string = test
+  "remove_all_but_n of empty string equals empty string"
+  (\_ -> Expect.equal
+    ""
+    (remove_all_but_n ":" 2 "")
+  )
+
+remove_all_but_n_returns_the_same_string_if_there_are_no_matches : Test
+remove_all_but_n_returns_the_same_string_if_there_are_no_matches = test
+  "remove_all_but_n returns empty string if there are no matches"
+  (\_ -> Expect.equal
+    "Hello, world!"
+    (remove_all_but_n ":" 2 "Hello, world!")
+  )
+
+remove_all_but_n_returns_the_same_string_if_there_are_less_than_n_matches : Test
+remove_all_but_n_returns_the_same_string_if_there_are_less_than_n_matches = test
+  "remove_all_but_n returns empty string if there less than n matches"
+  (\_ -> Expect.equal
+    "Hello: world!"
+    (remove_all_but_n ":" 2 "Hello: world!")
+  )
+
+remove_all_but_n_returns_the_same_string_if_there_are_n_matches : Test
+remove_all_but_n_returns_the_same_string_if_there_are_n_matches = test
+  "remove_all_but_n returns empty string if there exactly n matches"
+  (\_ -> Expect.equal
+    ":heart:"
+    (remove_all_but_n ":" 2 ":heart:")
+  )
+
+remove_all_but_n_leaves_the_first_n_matches_starting_from_the_left : Test
+remove_all_but_n_leaves_the_first_n_matches_starting_from_the_left = test
+  "remove_all_but_n leaves the first n matches starting from the left, and removes the rest"
+  (\_ -> Expect.equal
+    "127.0.01"
+    (remove_all_but_n "." 2 "127.0.0.1")
   )
