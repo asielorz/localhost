@@ -428,3 +428,53 @@ remove_all_but_n_leaves_the_first_n_matches_starting_from_the_left = test
     "127.0.01"
     (remove_all_but_n "." 2 "127.0.0.1")
   )
+
+-- format_seconds_as_hours_minutes_seconds
+
+format_seconds_as_hours_minutes_seconds_zero : Test
+format_seconds_as_hours_minutes_seconds_zero = test
+  "format_seconds_as_hours_minutes_seconds of 0 is string 0"
+  (\_ -> Expect.equal
+    "0"
+    (format_seconds_as_hours_minutes_seconds 0)
+  )
+
+format_seconds_as_hours_minutes_seconds_less_than_a_minute : Test
+format_seconds_as_hours_minutes_seconds_less_than_a_minute = test
+  "format_seconds_as_hours_minutes_seconds of less than a minute formats just the seconds"
+  (\_ -> Expect.equal
+    "59"
+    (format_seconds_as_hours_minutes_seconds 59)
+  )
+
+format_seconds_as_hours_minutes_seconds_exactly_a_minute : Test
+format_seconds_as_hours_minutes_seconds_exactly_a_minute = test
+  "format_seconds_as_hours_minutes_seconds of a minute is rendered as 1:00"
+  (\_ -> Expect.equal
+    "1:00"
+    (format_seconds_as_hours_minutes_seconds 60)
+  )
+
+format_seconds_as_hours_minutes_seconds_less_than_an_hour : Test
+format_seconds_as_hours_minutes_seconds_less_than_an_hour = test
+  "format_seconds_as_hours_minutes_seconds of less than an hour is formatted as minutes:seconds"
+  (\_ -> Expect.equal
+    "59:59"
+    (format_seconds_as_hours_minutes_seconds 3599)
+  )
+
+format_seconds_as_hours_minutes_seconds_exactly_an_hour : Test
+format_seconds_as_hours_minutes_seconds_exactly_an_hour = test
+  "format_seconds_as_hours_minutes_seconds of exactly an hour is formatted as 1:00:00"
+  (\_ -> Expect.equal
+    "59:59"
+    (format_seconds_as_hours_minutes_seconds 3599)
+  )
+
+format_seconds_as_hours_minutes_seconds_more_than_an_hour : Test
+format_seconds_as_hours_minutes_seconds_more_than_an_hour = test
+  "format_seconds_as_hours_minutes_seconds of more than an hour is formatted as hours:minutes:seconds"
+  (\_ -> Expect.equal
+    "12:01:25"
+    (format_seconds_as_hours_minutes_seconds 43285)
+  )

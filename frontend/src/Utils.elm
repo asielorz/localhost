@@ -1,6 +1,6 @@
 module Utils exposing (
   add_if, enumerate, at, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
-  toupper_first, remove_all_but_n,
+  toupper_first, remove_all_but_n, format_seconds_as_hours_minutes_seconds,
   missing_to_be_a_multiple_of, 
   fail_if_nothing, 
   grid, on_enter, set_alpha
@@ -9,7 +9,6 @@ module Utils exposing (
 import Json.Decode
 import Element as UI
 import Html.Events
-import String exposing (indices)
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on lists
@@ -80,6 +79,29 @@ remove_all_but_n to_remove max_repetitions str =
     case at max_repetitions indices of
       Nothing -> str
       Just index -> String.left index str ++ String.replace to_remove "" (String.dropLeft index str)
+
+format_seconds_as_hours_minutes_seconds : Int -> String
+format_seconds_as_hours_minutes_seconds seconds =
+  let
+    pad_zero cond target_length str = 
+      if cond
+        then String.repeat (target_length - String.length str) "0" ++ str
+        else str
+    hours = seconds // 3600
+    sub_hour_seconds = Basics.modBy 3600 seconds
+    minutes = sub_hour_seconds // 60
+    sub_minute_seconds = Basics.modBy 60 sub_hour_seconds
+    hours_formatted = 
+      if hours > 0 
+        then String.fromInt hours ++ ":"
+        else ""
+    minutes_formatted = 
+      if minutes > 0 
+        then String.fromInt minutes ++ ":" |> pad_zero (hours > 0) 3
+        else ""
+    seconds_formatted = String.fromInt sub_minute_seconds |> pad_zero (minutes > 0) 2
+  in
+    hours_formatted ++ minutes_formatted ++ seconds_formatted
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on numbers

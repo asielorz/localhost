@@ -13,13 +13,15 @@ import InputBox exposing (..)
 import ListWidget
 import DatePicker
 import Time
-import SearchQuery
+import SearchQuery exposing (EntryTypeToSearch(..))
 import Url exposing (Url)
 import Url.Parser exposing (query)
 import Fontawesome exposing (fontawesome_text)
+import Combo
 
 type ComboId
-  = ComboId_Author
+  = ComboId_Type
+  | ComboId_Author
   | ComboId_Category
   | ComboId_WorksMentioned Int
   | ComboId_Themes Int
@@ -37,6 +39,7 @@ type alias Model =
   , works_mentioned : List String
   , themes : List String
   , tags : List String
+  , type_to_search : EntryTypeToSearch
   , published_between_from : DatePicker.State
   , published_between_until : DatePicker.State
   , saved_between_from : DatePicker.State
@@ -63,6 +66,7 @@ type Msg
   | Msg_TitleChanged String
   | Msg_AuthorChanged String
   | Msg_DescriptionChanged String
+  | Msg_TypeToSearchChanged (Combo.Msg EntryTypeToSearch)
   | Msg_CategoryChanged String
   | Msg_WorksMentioned (ListWidget.Msg String)
   | Msg_Themes (ListWidget.Msg String)
@@ -103,6 +107,7 @@ init =
       , works_mentioned = []
       , themes = []
       , tags = []
+      , type_to_search = TypeToSearch_Any
       , published_between_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
       , published_between_until = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
       , saved_between_from = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
@@ -178,6 +183,17 @@ update msg model = case msg of
   
   Msg_DescriptionChanged new_description -> 
     ({ model | description = new_description }, Cmd.none)
+
+  Msg_TypeToSearchChanged combo_msg ->
+    ( Combo.update
+      { set_value = (\t m -> { m | type_to_search = t })
+      , set_open_combo = (\id m -> { m | currently_open_combo = id })
+      , id = ComboId_Type
+      , model = model
+      }
+      combo_msg
+    , Cmd.none
+    )
   
   Msg_CategoryChanged new_category -> 
     ({ model | category = new_category }, Cmd.none)
@@ -271,6 +287,7 @@ search_button model =
       , works_mentioned = model.works_mentioned
       , themes = model.themes
       , tags = model.tags
+      , type_to_search = model.type_to_search
       , published_between_from = DatePicker.date model.published_between_from
       , published_between_until = DatePicker.date model.published_between_until
       , saved_between_from = DatePicker.date model.saved_between_from
@@ -287,6 +304,46 @@ search_button model =
       { url = "/search" ++ query
       , label = UI.text "Buscar"
       }
+
+entry_type_display_string : EntryTypeToSearch -> String
+entry_type_display_string entry_type = case entry_type of
+  TypeToSearch_Any -> "Todos"
+  TypeToSearch_Article -> "Artículo"
+  TypeToSearch_Paper -> "Paper"
+  TypeToSearch_Book -> "Libro"
+  TypeToSearch_Video -> "Vídeo"
+  TypeToSearch_Audio -> "Audio"
+
+entry_type_fontawesome_icon : EntryTypeToSearch -> String
+entry_type_fontawesome_icon entry_type = case entry_type of
+  TypeToSearch_Any -> "\u{f00c}" -- fa-check
+  TypeToSearch_Article -> "\u{f15b}" -- fa-file
+  TypeToSearch_Paper -> "\u{f15c}" -- fa-file-lines
+  TypeToSearch_Book -> "\u{f02d}" -- fa-book
+  TypeToSearch_Video -> "\u{f03d}" -- fa-video
+  TypeToSearch_Audio -> "\u{f027}" -- fa-volume-low
+
+type_combo_alternative : EntryTypeToSearch -> UI.Element Msg
+type_combo_alternative entry_type = 
+  UI.el 
+  [ UI.padding 5
+  ]
+  (UI.row [ UI.spacing 10 ]
+    [ fontawesome_text [] <| entry_type_fontawesome_icon entry_type
+    , UI.text <| entry_type_display_string entry_type
+    ]
+  )
+
+type_combo : EntryTypeToSearch -> Maybe ComboId -> UI.Element Msg
+type_combo entry_type currently_open_combo = Combo.view 
+  (Config.widget_common_attributes ++ [ UI.padding 5, UI.width UI.fill ])
+  { combo_state = entry_type
+  , alternatives = [ TypeToSearch_Any, TypeToSearch_Article, TypeToSearch_Paper, TypeToSearch_Book, TypeToSearch_Video, TypeToSearch_Audio ]
+  , id = ComboId_Type
+  , currently_open_id = currently_open_combo
+  , message = Msg_TypeToSearchChanged
+  , view_alternative = type_combo_alternative
+  }
 
 view_search_column : List (UI.Attribute Msg) -> Model -> UI.Element Msg
 view_search_column attributes model = UI.column 
@@ -308,6 +365,7 @@ view_search_column attributes model = UI.column
     , change_open = Msg_OpenComboChanged
     }
   , with_label "Descripción"  <| input_box [] model.description Msg_DescriptionChanged
+  , with_label "Tipo"  <| type_combo model.type_to_search model.currently_open_combo
   , with_label "Categoría"    <| input_box_with_suggestions []
     { text = model.category
     , suggestions = model.all_categories

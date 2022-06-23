@@ -34,9 +34,13 @@ view : List (UI.Attribute msg) -> { combo_state : a, id : id, alternatives : Lis
 view attributes args = 
   let open = Just args.id == args.currently_open_id
   in UI.el 
-    (if open then [ UI.below (view_combo_content attributes { alternatives = args.alternatives, view_alternative = args.view_alternative, message = args.message }) ] else [])
+    ( add_if 
+      open 
+      (UI.below (view_combo_content attributes { alternatives = args.alternatives, view_alternative = args.view_alternative, message = args.message })) 
+      [ UI.width UI.fill ]
+    )
     <| Input.button 
-      (add_if open (Events.onClick <| args.message Msg_Close) [])
+      (add_if open (Events.onClick <| args.message Msg_Close) [ UI.width UI.fill ])
       { onPress = Just (args.message Msg_Open)
       , label = UI.row 
         (attributes ++ [ UI.spacing 10 ])

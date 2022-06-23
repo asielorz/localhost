@@ -1,7 +1,8 @@
 module Entry exposing (Entry, view, view_full, from_json)
 
+import EntryType exposing (EntryType(..))
 import Calendar
-import Element as UI exposing (px, rgb)
+import Element as UI exposing (px, rgb, rgba)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events as Events
@@ -25,7 +26,9 @@ type alias Entry =
   , date_published : Calendar.Date
   , date_saved : Calendar.Date
   , exceptional : Bool
+  , entry_type : EntryType
   , image : Maybe String
+  , backup : Maybe String
   }
 
 -- view
@@ -51,16 +54,34 @@ view_extra_info info label = UI.row
   , UI.text label
   ]
 
+entry_type_metadata_text : EntryType -> String
+entry_type_metadata_text entry_type = case entry_type of
+  Type_Article t -> String.fromInt t.pages ++ " páginas"
+  Type_Paper t -> String.fromInt t.pages ++ " páginas"
+  Type_Book t -> String.fromInt t.pages ++ " páginas"
+  Type_Video t -> Utils.format_seconds_as_hours_minutes_seconds t.length_in_seconds
+  Type_Audio t -> Utils.format_seconds_as_hours_minutes_seconds t.length_in_seconds
+
 view_image : Entry -> UI.Element msg
 view_image entry = UI.el 
   [ UI.width (px 304)
   , UI.height (px 173) 
   , Border.color Config.widget_border_color
   , Border.width 2
+  , UI.inFront <| UI.el [ UI.moveRight 6, UI.moveDown 8, Background.color (rgb 0 0 0), UI.width (px 37), UI.height (px 37), Border.rounded 8 ] UI.none
   , UI.inFront <| UI.link [ UI.moveRight 7, UI.moveDown 7 ]
     { url = "/edit/" ++ String.fromInt entry.id
     , label = fontawesome_text [ Font.size 40 ] "\u{f14b}" -- square-pen
     }
+  , UI.inFront <| UI.el 
+    [ UI.padding 5
+    , UI.alignBottom
+    , UI.alignRight
+    , Background.color (rgba 0 0 0 0.5)
+    , Font.size 15
+    , Border.rounded 10
+    ]
+    <| UI.text <| entry_type_metadata_text entry.entry_type
   ]
   <| UI.link
     [ UI.width (px 300)
@@ -85,8 +106,13 @@ view_image entry = UI.el
     }
 
 title_row : Entry -> UI.Element msg
-title_row entry = UI.row [ Font.size 25, UI.width UI.fill ] 
-  [ UI.link [ UI.alignLeft ] { url = entry.link, label = UI.text entry.title }
+title_row entry = UI.row 
+  [ Font.size 25
+  , UI.width UI.fill
+  , UI.spacing 10
+  ] 
+  [ fontawesome_text [] <| EntryType.fontawesome_icon entry.entry_type
+  , UI.link [ UI.alignLeft ] { url = entry.link, label = UI.text entry.title }
   , fontawesome_text [ UI.alignRight, Font.color <| if entry.exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4) ] "\u{f005}" --fa-star
   ]
 
@@ -173,10 +199,12 @@ from_json =
       (Json.field "themes" (Json.list Json.string)) 
       (Json.field "works_mentioned" (Json.list Json.string))
   in 
-    Json.map6 (<|)
+    Json.map8 (<|)
       fields
       (Json.field "tags" (Json.list Json.string))
       (Json.field "date_published" DateUtils.date_from_json)
       (Json.field "date_saved" DateUtils.date_from_json)
       (Json.field "exceptional" Json.bool)
+      (Json.field "entry_type" EntryType.from_json)
       (Json.field "image" (Json.nullable Json.string))
+      (Json.field "backup" (Json.nullable Json.string))

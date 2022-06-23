@@ -27,6 +27,7 @@ import Bytes exposing (Bytes)
 import Fontawesome exposing (fontawesome_text)
 import Url
 import Entry exposing (Entry)
+import EntryType exposing (EntryType(..))
 import Json.Encode
 
 init : (Model, Cmd Msg)
@@ -46,6 +47,7 @@ edit id =
       , tags = []
       , date_published = Nothing
       , exceptional = False
+      , entry_type = Type_Article { pages = 0 }
       }
   in
     ( { default_model 
@@ -109,7 +111,7 @@ type alias Model =
   , works_mentioned : List String
   , tags : List String
   , date_published : DatePicker.State
-  , entry_type : NewEntry.Type
+  , entry_type : EntryType
   , exceptional : Bool
   , currently_open_combo : Maybe ComboId
   , app_state : AppState
@@ -140,7 +142,7 @@ default_model =
   , works_mentioned = []
   , tags = []
   , date_published = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , entry_type = NewEntry.Type_Article { pages = 0 }
+  , entry_type = Type_Article { pages = 0 }
   , exceptional = False
   , currently_open_combo = Nothing
   , app_state = State_Editing
@@ -173,7 +175,7 @@ type Msg
   | Msg_AuthorChanged String
   | Msg_DescriptionChanged String
   | Msg_CategoryChanged String
-  | Msg_TypeCombo (Combo.Msg NewEntry.Type)
+  | Msg_TypeCombo (Combo.Msg EntryType)
   | Msg_TypeMetadataChanged String
   | Msg_BackupCombo (Combo.Msg Backup)
   | Msg_ExceptionalChanged Bool
@@ -214,7 +216,7 @@ type Msg
 
 sides = { top = 0, bottom = 0, left = 0, right = 0 }
 
-set_entry_type : NewEntry.Type -> Model -> Model
+set_entry_type : EntryType -> Model -> Model
 set_entry_type entry_type model = { model | entry_type = entry_type }
 
 set_open_combo : Maybe ComboId -> Model -> Model
@@ -305,11 +307,11 @@ update msg model = case msg of
         |> String.left 8
 
       (fixed, updated_type) = case model.entry_type of
-        NewEntry.Type_Article _ -> (only_digits, NewEntry.Type_Article { pages = string_to_int only_digits })
-        NewEntry.Type_Paper _ -> (only_digits, NewEntry.Type_Paper { pages = string_to_int only_digits })
-        NewEntry.Type_Book _ -> (only_digits, NewEntry.Type_Book { pages = string_to_int only_digits })
-        NewEntry.Type_Video _ -> (duration, NewEntry.Type_Video { length_in_seconds = parse_duration duration })
-        NewEntry.Type_Audio _ -> (duration, NewEntry.Type_Audio { length_in_seconds = parse_duration duration })
+        Type_Article _ -> (only_digits, Type_Article { pages = string_to_int only_digits })
+        Type_Paper _ -> (only_digits, Type_Paper { pages = string_to_int only_digits })
+        Type_Book _ -> (only_digits, Type_Book { pages = string_to_int only_digits })
+        Type_Video _ -> (duration, Type_Video { length_in_seconds = parse_duration duration })
+        Type_Audio _ -> (duration, Type_Audio { length_in_seconds = parse_duration duration })
     in
       ({ model | type_metadata_input_string = fixed, entry_type = updated_type }, Cmd.none)
 
@@ -460,6 +462,7 @@ update msg model = case msg of
             , tags = entry.tags
             , date_published = Just entry.date_published
             , exceptional = entry.exceptional
+            , entry_type = entry.entry_type
             } })
           , link = entry.link
           , title = entry.title
@@ -470,8 +473,10 @@ update msg model = case msg of
           , works_mentioned = entry.works_mentioned
           , tags = entry.tags
           , date_published = DatePicker.set_date (Just entry.date_published) model.date_published
+          , entry_type = entry.entry_type
           , exceptional = entry.exceptional
           , app_state = State_Editing
+          , type_metadata_input_string = entry_type_edit_metadata_string entry.entry_type
           }
         , Cmd.none
         )
@@ -519,16 +524,11 @@ make_new_entry_form model =
       , tags = model.tags
       , date_published = DatePicker.date model.date_published
       , exceptional = model.exceptional
+      , entry_type = model.entry_type
       }
   in case NewEntry.validate form of
     Nothing -> Ok form
     Just error -> Err error
-
--- Http.post 
---   { url = "http://localhost:8080/api/texts"
---   , body = Http.jsonBody <| NewEntry.to_json form
---   , expect = Http.expectString Msg_ResponseToSendArrived
---   }
 
 resolve : (body -> Result String a) -> Http.Response body -> Result Http.Error a
 resolve toResult response =
@@ -642,42 +642,42 @@ row name content = UI.row [ UI.paddingEach { sides | top = 30 } ]
   , UI.el [ UI.width (px 500) ] content
   ]
 
-entry_type_display_string : NewEntry.Type -> String
+entry_type_display_string : EntryType -> String
 entry_type_display_string entry_type = case entry_type of
-  NewEntry.Type_Article _ -> "Artículo"
-  NewEntry.Type_Paper _ -> "Paper"
-  NewEntry.Type_Book _ -> "Libro"
-  NewEntry.Type_Video _ -> "Vídeo"
-  NewEntry.Type_Audio _ -> "Audio"
+  Type_Article _ -> "Artículo"
+  Type_Paper _ -> "Paper"
+  Type_Book _ -> "Libro"
+  Type_Video _ -> "Vídeo"
+  Type_Audio _ -> "Audio"
 
-entry_type_display_fontawesome_icon : NewEntry.Type -> String
-entry_type_display_fontawesome_icon entry_type = case entry_type of
-  NewEntry.Type_Article _ -> "\u{f15b}" -- fa-file
-  NewEntry.Type_Paper _ -> "\u{f15c}" -- fa-file-lines
-  NewEntry.Type_Book _ -> "\u{f02d}" -- fa-book
-  NewEntry.Type_Video _ -> "\u{f03d}" -- fa-video
-  NewEntry.Type_Audio _ -> "\u{f027}" -- fa-volume-low
+entry_type_edit_metadata_string : EntryType -> String
+entry_type_edit_metadata_string entry_type = case entry_type of
+  Type_Article x -> String.fromInt x.pages
+  Type_Paper x -> String.fromInt x.pages
+  Type_Book x -> String.fromInt x.pages
+  Type_Video x -> Utils.format_seconds_as_hours_minutes_seconds x.length_in_seconds
+  Type_Audio x -> Utils.format_seconds_as_hours_minutes_seconds x.length_in_seconds
 
-type_combo_alternative : NewEntry.Type -> UI.Element Msg
+type_combo_alternative : EntryType -> UI.Element Msg
 type_combo_alternative entry_type = 
   UI.el 
   [ UI.padding 5
   ]
   (UI.row [ UI.spacing 10 ]
-    [ UI.el [ Font.family [ fontawesome ] ] <| UI.text <| entry_type_display_fontawesome_icon entry_type
+    [ fontawesome_text [] <| EntryType.fontawesome_icon entry_type
     , UI.text <| entry_type_display_string entry_type
     ]
   )
 
-type_hint_text : NewEntry.Type -> UI.Element msg
+type_hint_text : EntryType -> UI.Element msg
 type_hint_text entry_type = 
   let
     text = case entry_type of
-      NewEntry.Type_Article _ -> "páginas"
-      NewEntry.Type_Paper _ -> "páginas"
-      NewEntry.Type_Book _ -> "páginas"
-      NewEntry.Type_Video _ -> "segundos"
-      NewEntry.Type_Audio _ -> "segundos"
+      Type_Article _ -> "páginas"
+      Type_Paper _ -> "páginas"
+      Type_Book _ -> "páginas"
+      Type_Video _ -> "segundos"
+      Type_Audio _ -> "segundos"
   in
     UI.el 
       [ UI.centerY
@@ -687,23 +687,23 @@ type_hint_text entry_type =
       ]
       <| UI.text text
 
-type_row : NewEntry.Type -> String -> List (UI.Element Msg)
+type_row : EntryType -> String -> List (UI.Element Msg)
 type_row entry_type input_string = 
   [ input_box [ UI.inFront <| type_hint_text entry_type ] input_string Msg_TypeMetadataChanged
   ]
 
-type_combo_button : NewEntry.Type -> String -> Maybe ComboId -> UI.Element Msg
+type_combo_button : EntryType -> String -> Maybe ComboId -> UI.Element Msg
 type_combo_button entry_type input_string currently_open_combo = UI.row [ UI.spacing 10, UI.width UI.fill ]
   (Combo.view 
     (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 150) ])
     { combo_state = entry_type
     , id = ComboId_Type
     , alternatives = 
-      [ NewEntry.Type_Article { pages = 0 }
-      , NewEntry.Type_Paper { pages = 0 }
-      , NewEntry.Type_Book { pages = 0 }
-      , NewEntry.Type_Video { length_in_seconds = 0 }
-      , NewEntry.Type_Audio { length_in_seconds = 0 }
+      [ Type_Article { pages = 0 }
+      , Type_Paper { pages = 0 }
+      , Type_Book { pages = 0 }
+      , Type_Video { length_in_seconds = 0 }
+      , Type_Audio { length_in_seconds = 0 }
       ]
     , view_alternative = type_combo_alternative
     , message = Msg_TypeCombo

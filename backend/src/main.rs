@@ -84,7 +84,7 @@ impl PartialOrd for Date
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 enum EntryType
 {
     Article { pages : i32 },
@@ -92,6 +92,45 @@ enum EntryType
     Book { pages : i32 },
     Video { length_in_seconds : i32 },
     Audio { length_in_seconds : i32 },
+}
+
+impl Default for EntryType
+{
+    fn default() -> Self { EntryType::Article{pages : 0} }
+}
+
+fn entry_type_index(t : EntryType) -> i32
+{
+    match t {
+        EntryType::Article{pages : _}           => 0,
+        EntryType::Paper{pages : _}             => 1,
+        EntryType::Book{pages : _}              => 2,
+        EntryType::Video{length_in_seconds : _} => 3,
+        EntryType::Audio{length_in_seconds : _} => 4,
+    }
+}
+
+fn entry_type_metadata(t : EntryType) -> i32
+{
+    match t {
+        EntryType::Article{pages}           => pages,
+        EntryType::Paper{pages}             => pages,
+        EntryType::Book{pages}              => pages,
+        EntryType::Video{length_in_seconds} => length_in_seconds,
+        EntryType::Audio{length_in_seconds} => length_in_seconds,
+    }
+}
+
+fn make_entry_type_from_index_and_metadata(index : i32, metadata : i32) -> EntryType
+{
+    match index {
+        0 => EntryType::Article{pages : metadata},
+        1 => EntryType::Paper{pages : metadata},
+        2 => EntryType::Book{pages : metadata},
+        3 => EntryType::Video{length_in_seconds : metadata},
+        4 => EntryType::Audio{length_in_seconds : metadata},
+        _ => unreachable!(),
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -125,7 +164,9 @@ struct Entry
     date_published : Date,
     date_saved : Date,
     exceptional : bool,
-    image : Option<String>
+    entry_type : EntryType,
+    image : Option<String>,
+    backup : Option<String>
 }
 
 #[derive(Deserialize)]
@@ -175,6 +216,19 @@ fn parse_date_query_argument(query_argument : &str) -> Option<Date>
     });
 }
 
+// Returns type index
+fn parse_type_query_argument(argument : &str) -> Option<i32>
+{
+    match argument {
+        "article" => Some(0),  
+        "paper"   => Some(1),    
+        "book"    => Some(2),     
+        "video"   => Some(3),    
+        "audio"   => Some(4),
+        _         => None
+    }
+}
+
 fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>)>
 {
     let mut result = String::from("SELECT * FROM entries WHERE ");
@@ -205,6 +259,9 @@ fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>)>
                     "category" => {
                         result += "category = ?";
                         params.push(String::from(key_value[1]));
+                    }
+                    "type" => {
+                        result += &format!("entry_type = {}", parse_type_query_argument(key_value[1])?);
                     }
                     "works_mentioned" => {
                         for s in key_value[1].split("|") {
@@ -370,6 +427,8 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql
     let mut rows = statement.query(sql_params)?;
     while let Some(row) = rows.next()? {
         let id : i64 = row.get(0)?;
+        let entry_type_index : i32 = row.get(12)?;
+        let entry_type_metadata : i32 = row.get(13)?;
         
         found_entries.push(Entry{
             id : id,
@@ -384,7 +443,9 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql
             date_published : read_sql_date(&row.get::<_, String>(9)?).unwrap(),
             date_saved : read_sql_date(&row.get::<_, String>(10)?).unwrap(),
             exceptional : row.get(11)?,
-            image : if row.get_ref(12)?.as_blob_or_null()?.is_some() { Some(format!("http://localhost:8080/api/texts/{}/image", id)) } else { None }
+            entry_type : make_entry_type_from_index_and_metadata(entry_type_index, entry_type_metadata),
+            image : if row.get_ref(14)?.as_blob_or_null()?.is_some() { Some(format!("http://localhost:8080/api/texts/{}/image", id)) } else { None },
+            backup : if row.get_ref(15)?.as_blob_or_null()?.is_some() { Some(format!("http://localhost:8080/api/texts/{}/backup", id)) } else { None },
         });
     }
 
@@ -580,8 +641,10 @@ impl Requests
                             tags = ?8,
                             date_published = ?9,
                             date_saved = ?10,
-                            exceptional = ?11
-                        WHERE entry_id = ?12;
+                            exceptional = ?11,
+                            entry_type = ?12,
+                            entry_type_metadata = ?13
+                        WHERE entry_id = ?14;
                         ",
                         rusqlite::params!
                             [ &form.link
@@ -595,6 +658,8 @@ impl Requests
                             , &format_as_sql_date(form.date_published)
                             , &format_as_sql_date(today())
                             , form.exceptional
+                            , entry_type_index(form.entry_type)
+                            , entry_type_metadata(form.entry_type)
                             , entry_id
                             ]
                     );
@@ -883,8 +948,8 @@ impl Requests
                 if let Some(database) = &state.database {
                     let result = database.execute(
                         "
-                        INSERT INTO entries (link, title, description, author, category, themes, works_mentioned, tags, date_published, date_saved, exceptional)
-                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
+                        INSERT INTO entries (link, title, description, author, category, themes, works_mentioned, tags, date_published, date_saved, exceptional, entry_type, entry_type_metadata)
+                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13);
                         ",
                         rusqlite::params!
                             [ &form.link
@@ -898,6 +963,8 @@ impl Requests
                             , &format_as_sql_date(form.date_published)
                             , &format_as_sql_date(today())
                             , form.exceptional
+                            , entry_type_index(form.entry_type)
+                            , entry_type_metadata(form.entry_type)
                             ]
                     );
 
@@ -1013,6 +1080,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
             date_published DATE NOT NULL,
             date_saved DATE NOT NULL,
             exceptional BOOL NOT NULL,
+            entry_type INT NOT NULL,
+            entry_type_metadata INT NOT NULL,
             image BLOB,
             backup BLOB
         );
@@ -1222,6 +1291,69 @@ mod tests
                 assert_eq!(params, [r#"%"wikipedia"%"#]);
             }
             None => unreachable!()
+        }
+    }
+
+    #[test]
+    fn test_url_to_sql_query_type_is_converted_to_an_index() {
+        {
+            let url_params = "type=article";
+            match url_to_sql_query(url_params) {
+                Some((query, params)) => { 
+                    assert_eq!(query, r#"SELECT * FROM entries WHERE entry_type = 0 LIMIT 10"#);
+                    assert_eq!(params.is_empty(), true);
+                }
+                None => unreachable!()
+            }
+        }
+        {
+            let url_params = "type=paper";
+            match url_to_sql_query(url_params) {
+                Some((query, params)) => { 
+                    assert_eq!(query, r#"SELECT * FROM entries WHERE entry_type = 1 LIMIT 10"#);
+                    assert_eq!(params.is_empty(), true);
+                }
+                None => unreachable!()
+            }
+        }
+        {
+            let url_params = "type=book";
+            match url_to_sql_query(url_params) {
+                Some((query, params)) => { 
+                    assert_eq!(query, r#"SELECT * FROM entries WHERE entry_type = 2 LIMIT 10"#);
+                    assert_eq!(params.is_empty(), true);
+                }
+                None => unreachable!()
+            }
+        }
+        {
+            let url_params = "type=video";
+            match url_to_sql_query(url_params) {
+                Some((query, params)) => { 
+                    assert_eq!(query, r#"SELECT * FROM entries WHERE entry_type = 3 LIMIT 10"#);
+                    assert_eq!(params.is_empty(), true);
+                }
+                None => unreachable!()
+            }
+        }
+        {
+            let url_params = "type=audio";
+            match url_to_sql_query(url_params) {
+                Some((query, params)) => { 
+                    assert_eq!(query, r#"SELECT * FROM entries WHERE entry_type = 4 LIMIT 10"#);
+                    assert_eq!(params.is_empty(), true);
+                }
+                None => unreachable!()
+            }
+        }
+    }
+
+    #[test]
+    fn test_url_to_sql_query_bad_type() {
+        let url_params = "type=snafucated";
+        match url_to_sql_query(url_params) {
+            Some(_) => unreachable!(),
+            None => () 
         }
     }
 

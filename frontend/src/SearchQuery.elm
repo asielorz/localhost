@@ -1,4 +1,5 @@
-module SearchQuery exposing (empty_query, search_query, search_ui_state_from_query)
+module SearchQuery exposing (EntryTypeToSearch(..), empty_query, search_query, search_ui_state_from_query)
+
 import Calendar
 import Url.Builder
 import Utils
@@ -6,13 +7,13 @@ import DateUtils
 import Url.Parser exposing (query)
 import Url
 
-date_to_string : Calendar.Date -> String
-date_to_string date = 
-  String.fromInt (Calendar.getYear date) ++
-  "-" ++
-  String.fromInt (DateUtils.month_to_int <| Calendar.getMonth date) ++
-  "-" ++
-  String.fromInt (Calendar.getDay date)
+type EntryTypeToSearch
+  = TypeToSearch_Any
+  | TypeToSearch_Article
+  | TypeToSearch_Paper
+  | TypeToSearch_Book
+  | TypeToSearch_Video
+  | TypeToSearch_Audio
 
 type alias QueryArgs =
   { link : String
@@ -23,6 +24,7 @@ type alias QueryArgs =
   , works_mentioned : List String
   , themes : List String
   , tags : List String
+  , type_to_search : EntryTypeToSearch
   , published_between_from : Maybe Calendar.Date
   , published_between_until : Maybe Calendar.Date
   , saved_between_from : Maybe Calendar.Date
@@ -40,12 +42,40 @@ empty_query =
   , works_mentioned = []
   , themes = []
   , tags  = []
+  , type_to_search = TypeToSearch_Any
   , published_between_from = Nothing
   , published_between_until = Nothing
   , saved_between_from = Nothing
   , saved_between_until = Nothing
   , exceptional = False
   }
+
+date_to_string : Calendar.Date -> String
+date_to_string date = 
+  String.fromInt (Calendar.getYear date) ++
+  "-" ++
+  String.fromInt (DateUtils.month_to_int <| Calendar.getMonth date) ++
+  "-" ++
+  String.fromInt (Calendar.getDay date)
+
+type_to_string : EntryTypeToSearch -> String
+type_to_string t = case t of
+  TypeToSearch_Any      -> "any"
+  TypeToSearch_Article  -> "article"
+  TypeToSearch_Paper    -> "paper"
+  TypeToSearch_Book     -> "book"
+  TypeToSearch_Video    -> "video"
+  TypeToSearch_Audio    -> "audio"
+
+string_to_type : String -> Maybe EntryTypeToSearch
+string_to_type str = case str of
+  "any"     -> Just TypeToSearch_Any      
+  "article" -> Just TypeToSearch_Article  
+  "paper"   -> Just TypeToSearch_Paper    
+  "book"    -> Just TypeToSearch_Book     
+  "video"   -> Just TypeToSearch_Video    
+  "audio"   -> Just TypeToSearch_Audio
+  _         -> Nothing
 
 search_query : QueryArgs -> String
 search_query args = 
@@ -70,6 +100,7 @@ search_query args =
       |> add_list "works_mentioned" args.works_mentioned
       |> add_list "themes" args.themes
       |> add_list "tags" args.tags
+      |> Utils.add_if (args.type_to_search /= TypeToSearch_Any) (Url.Builder.string "type" (type_to_string args.type_to_search))
       |> add_date "published_between_from" args.published_between_from
       |> add_date "published_between_until" args.published_between_until
       |> add_date "saved_between_from" args.saved_between_from
@@ -107,6 +138,7 @@ apply_changes_to_query parameter query =
       "title" -> Just { query | title = value }
       "author" -> Just { query | author = value }
       "description" -> Just { query | description = value }
+      "type" -> string_to_type value |> Maybe.map (\t -> { query | type_to_search = t })
       "category" -> Just { query | category = value }
       "works_mentioned" -> Just { query | works_mentioned = String.split "|" value }
       "themes" -> Just { query | themes = String.split "|" value }
