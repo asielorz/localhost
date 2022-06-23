@@ -846,10 +846,13 @@ view_image edited_entry image_source =
           }
         , case edited_entry of
           Nothing -> UI.none
-          Just _ -> Input.button []
-            { onPress = Just Msg_ImageResetButtonClicked
-            , label = fontawesome_text button_attributes "\u{f0e2}" -- arrow-rotate-left
-            }
+          Just entry ->
+            if entry.original_image /= image_source
+              then Input.button []
+                { onPress = Just Msg_ImageResetButtonClicked
+                , label = fontawesome_text button_attributes "\u{f0e2}" -- arrow-rotate-left
+                }
+              else UI.none
         ]
       ]
       <| case image_source of
