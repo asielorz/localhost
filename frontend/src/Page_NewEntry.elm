@@ -820,75 +820,69 @@ view_main_column form = UI.column
 
 view_image : Maybe EditedEntry -> EntryImage -> UI.Element Msg
 view_image edited_entry image_source = 
-  let
-    button_attributes = Config.widget_common_attributes ++ 
-      [ Background.color <| Utils.set_alpha 0.5 Config.widget_background_color
-      , UI.mouseOver [ Background.color <| Utils.set_alpha 0.5 Config.widget_hovered_background_color ]
+  UI.el 
+    [ UI.width (px 304)
+    , UI.height (px 173) 
+    , Border.color Config.widget_border_color
+    , Border.width 2
+    , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 6 ] 
+      [ Input.button []
+        { onPress = Just Msg_ImageFileButtonClicked
+        , label = fontawesome_text Config.image_button_attributes "\u{f07c}" -- folder-open
+        }
+      , Input.button []
+        { onPress = Just Msg_ImageUrlButtonClicked
+        , label = fontawesome_text Config.image_button_attributes "\u{f0ac}" -- globe
+        }
+      , Input.button []
+        { onPress = Just Msg_ImageClearButtonClicked
+        , label = fontawesome_text Config.image_button_attributes "\u{f1f8}" -- trash
+        }
+      , case edited_entry of
+        Nothing -> UI.none
+        Just entry ->
+          if entry.original_image /= image_source
+            then Input.button []
+              { onPress = Just Msg_ImageResetButtonClicked
+              , label = fontawesome_text Config.image_button_attributes "\u{f0e2}" -- arrow-rotate-left
+              }
+            else UI.none
       ]
-  in
-    UI.el 
-      [ UI.width (px 304)
-      , UI.height (px 173) 
-      , Border.color Config.widget_border_color
-      , Border.width 2
-      , UI.inFront <| UI.row [ UI.spacing 5, UI.padding 6 ] 
-        [ Input.button []
-          { onPress = Just Msg_ImageFileButtonClicked
-          , label = fontawesome_text button_attributes "\u{f07c}" -- folder-open
-          }
-        , Input.button []
-          { onPress = Just Msg_ImageUrlButtonClicked
-          , label = fontawesome_text button_attributes "\u{f0ac}" -- globe
-          }
-        , Input.button []
-          { onPress = Just Msg_ImageClearButtonClicked
-          , label = fontawesome_text button_attributes "\u{f1f8}" -- trash
-          }
-        , case edited_entry of
-          Nothing -> UI.none
-          Just entry ->
-            if entry.original_image /= image_source
-              then Input.button []
-                { onPress = Just Msg_ImageResetButtonClicked
-                , label = fontawesome_text button_attributes "\u{f0e2}" -- arrow-rotate-left
-                }
-              else UI.none
-        ]
-      ]
-      <| case image_source of
-          Image_None -> 
-            UI.el
-              [ UI.width (px 300)
-              , UI.height (px 169)
-              , Background.color Config.widget_background_color
-              , UI.centerX
+    ]
+    <| case image_source of
+        Image_None -> 
+          UI.el
+            [ UI.width (px 300)
+            , UI.height (px 169)
+            , Background.color Config.widget_background_color
+            , UI.centerX
+            , UI.centerY
+            ]
+            <| UI.el 
+              [ UI.centerX
               , UI.centerY
-              ]
-              <| UI.el 
-                [ UI.centerX
-                , UI.centerY
-                , Font.size 25
-                , Font.center
-                ] 
-                <| UI.text "Ninguna imagen\nseleccionada"
+              , Font.size 25
+              , Font.center
+              ] 
+              <| UI.text "Ninguna imagen\nseleccionada"
 
-          -- The two cases below are using Background.image instead of UI.image because Background.image crops
-          -- the image to fit the size while UI.image scales it, and we don't want to show the image deformed.
-          Image_Url source ->
-            UI.el 
-              [ UI.width (px 300)
-              , UI.height (px 169)
-              , Background.image source
-              ]
-              UI.none
+        -- The two cases below are using Background.image instead of UI.image because Background.image crops
+        -- the image to fit the size while UI.image scales it, and we don't want to show the image deformed.
+        Image_Url source ->
+          UI.el 
+            [ UI.width (px 300)
+            , UI.height (px 169)
+            , Background.image source
+            ]
+            UI.none
 
-          Image_File file ->
-            UI.el 
-              [ UI.width (px 300)
-              , UI.height (px 169)
-              , Background.image file.url
-              ]
-              UI.none
+        Image_File file ->
+          UI.el 
+            [ UI.width (px 300)
+            , UI.height (px 169)
+            , Background.image file.url
+            ]
+            UI.none
 
 view_category : String -> List String -> Maybe ComboId -> UI.Element Msg
 view_category category all_categories curently_open_combo = UI.column 

@@ -3,6 +3,7 @@ module Config exposing (..)
 import Element as UI exposing (rgb, rgba)
 import Element.Background as Background
 import Element.Border as Border
+import Utils
 
 background_color : UI.Color
 background_color = (rgb 0.094 0.094 0.094)
@@ -38,3 +39,9 @@ widget_common_attributes =
   , UI.padding 10
   ]
   ++ widget_common_border_attributes
+
+image_button_attributes : List (UI.Attribute msg)
+image_button_attributes = widget_common_attributes ++ 
+  [ Background.color <| Utils.set_alpha 0.5 widget_background_color
+  , UI.mouseOver [ Background.color <| Utils.set_alpha 0.5 widget_hovered_background_color ]
+  ]

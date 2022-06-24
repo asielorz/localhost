@@ -459,17 +459,28 @@ fn is_single_entry_path(path : &str) -> bool {
     return false;
 }
 
-fn is_entry_image_path(path : &str) -> bool {
+fn is_entry_subpath(path : &str, subpath : &str) -> bool 
+{
     if let Some(p) = path.strip_prefix("/api/texts/") {
         let parts = p.split("/").collect::<Vec<_>>();
         if parts.len() != 2 {
             return false;
         }
         
-        return parts[0].parse::<i64>().is_ok() && parts[1] == "image";
+        return parts[0].parse::<i64>().is_ok() && parts[1] == subpath;
     }
 
     return false;
+}
+
+fn is_entry_image_path(path : &str) -> bool 
+{
+    return is_entry_subpath(path, "image");
+}
+
+fn is_entry_backup_path(path : &str) -> bool 
+{
+    return is_entry_subpath(path, "backup");
 }
 
 fn get_entry_id_from_path(path : &str) -> i64 {
@@ -850,7 +861,7 @@ impl Requests
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"success":true,"link":"http://localhost:8080/api/texts/{}/image"}}"#, entry_id)))
+            .body(Body::from(format!(r#"{{"link":"http://localhost:8080/api/texts/{}/image"}}"#, entry_id)))
             .or_else(|_| Requests::internal_server_error_response())
     }
 
@@ -882,6 +893,151 @@ impl Requests
             .body(Body::from(""))
             .or_else(|_| Requests::internal_server_error_response())
     }
+
+    fn get_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+
+        let mut statement = match database.prepare("SELECT backup FROM entries WHERE entry_id = ?") {
+            Ok(s) => s,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+        let mut rows = match statement.query([entry_id]) {
+            Ok(r) => r,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+        
+        let first = match rows.next() {
+            Ok(r) => r,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+
+        if let Some(found_row) = first {
+            let blob_ref = match found_row.get_ref(0) {
+                Ok(r) => r,
+                Err(_) => { return Requests::internal_server_error_response(); }
+            };
+
+            let maybe_blob = match blob_ref.as_blob_or_null() {
+                Ok(r) => r,
+                Err(_) => { return Requests::internal_server_error_response(); }
+            };
+
+            if let Some(blob) = maybe_blob {
+                let content_type_length = blob[0] as usize;
+                let content_type = &blob[1..content_type_length + 1];
+                let content_data = Vec::from(&blob[content_type_length + 1..]);
+
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .header("Access-Control-Allow-Headers", "*")
+                    .header("Content-Type", content_type)
+                    .body(Body::from(content_data))
+                    .or_else(|_| Requests::internal_server_error_response())
+            } else {
+                return Requests::not_found_404_response();
+            }
+        } else {
+            return Requests::not_found_404_response();
+        }
+    }
+
+    async fn put_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let content_type = match get_header_case_insensitive(req.headers(), "Content-Type") {
+            None => { return Requests::bad_request_response("Missing content type hader"); }
+            Some(value) => String::from(value.to_str().unwrap())
+        };
+
+        let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+
+        let blob_header_length = content_type.len() + 1; // + 1 for storing the size.
+        let blob_length = blob_header_length + whole_body.len();
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+        match database.execute(
+            "
+            UPDATE entries
+            SET backup = ?
+            WHERE entry_id = ?
+            ",
+            rusqlite::params![rusqlite::blob::ZeroBlob(blob_length as i32), entry_id]
+        ) {
+            // No values where modified.
+            Ok(0) => { return Requests::not_found_404_response(); }
+            // Something went wrong within the database.
+            Err(_) => { return Requests::internal_server_error_response(); }
+            // Everything went fine.
+            Ok(_) => ()
+        };
+
+        let mut blob = match database.blob_open(rusqlite::MAIN_DB, "entries", "backup", entry_id, false) {
+            Ok(b) => b,
+            Err(_) => { return Requests::internal_server_error_response(); }
+        };
+
+        // Write the length of the content type string in 1 byte. Content type strings are very short
+        // so 1 byte should always be enough.
+        if let Err(_) = blob.write_at(&[content_type.len() as u8], 0) {
+            return Requests::internal_server_error_response();
+        };
+
+        // Write the content type string. This way, when a client requests the backup, we can return it with
+        // the correct content type.
+        if let Err(_) = blob.write_at(content_type.as_bytes(), 1) {
+            return Requests::internal_server_error_response();
+        };
+
+        // Write the actual backup data.
+        if let Err(_) = blob.write_at(&whole_body, blob_header_length) {
+            return Requests::internal_server_error_response();
+        };
+
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"link":"http://localhost:8080/api/texts/{}/backup"}}"#, entry_id)))
+            .or_else(|_| Requests::internal_server_error_response())
+    }
+
+    fn delete_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let state = STATE.lock().unwrap();
+        let database = state.database.as_ref().unwrap();
+
+        let result = database.execute(
+            "
+            UPDATE entries
+            SET backup = NULL
+            WHERE entry_id = ?
+            ",
+            rusqlite::params![entry_id]
+        );
+
+        if let Err(err) = result {
+            println!("Backup delete failed: {}", err);
+            return Requests::not_found_404_response();
+        }
+
+        Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .body(Body::from(""))
+            .or_else(|_| Requests::internal_server_error_response())
+    }
+
 
     fn strings_as_http_response(strings : &Vec<String>) -> Result<Response<Body>, hyper::Error>
     {
@@ -993,7 +1149,7 @@ impl Requests
                         .header("Access-Control-Allow-Origin", "*")
                         .header("Access-Control-Allow-Headers", "*")
                         .header("Content-Type", "application/json")
-                        .body(Body::from(format!(r#"{{"success":true,"id":{},"link":"http://localhost:8080/api/texts/{}"}}"#, last_insert_row_id, last_insert_row_id)))
+                        .body(Body::from(format!(r#"{{"id":{},"link":"http://localhost:8080/api/texts/{}"}}"#, last_insert_row_id, last_insert_row_id)))
                         .or_else(|_| Requests::internal_server_error_response())
                 } else {
                     return Requests::internal_server_error_response();
@@ -1007,10 +1163,10 @@ impl Requests
 
     fn serve_page(path : &str) -> Result<Response<Body>, hyper::Error>
     {
-        return Requests::serve_file(path, "text/html");
+        return Requests::serve_file(path, "text/html; charset=utf-8", false);
     }
 
-    fn serve_file(path : &str, content_type : &str) -> Result<Response<Body>, hyper::Error>
+    fn serve_file(path : &str, content_type : &str, cache : bool) -> Result<Response<Body>, hyper::Error>
     {
         match fs::read(path) {
             Ok(content) =>{
@@ -1018,6 +1174,7 @@ impl Requests
                     .status(StatusCode::OK)
                     .header("Access-Control-Allow-Origin", "*")
                     .header("Access-Control-Allow-Headers", "*")
+                    .header("Cache-Control", if cache { "public, max-age=31919000, immutable" } else { "max-age=0" })
                     .header("Content-Type", content_type)
                     .body(Body::from(content))
                     .or_else(|_| Requests::internal_server_error_response())
@@ -1037,7 +1194,11 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
     match (req.method(), req.uri().path()) {
         (&Method::OPTIONS, _) => Requests::options(),
 
-        (&Method::GET, "/favicon.ico") => Requests::serve_file("pages/favicon.ico", "image/vnd.microsoft.icon"),
+        (&Method::GET, "/favicon.ico") => Requests::serve_file("pages/favicon.ico", "image/vnd.microsoft.icon", true),
+        (&Method::GET, path) if path.starts_with("/fontawesome/") => Requests::serve_file(
+            &format!("pages/{}", path), 
+            if path.ends_with(".css") { "text/css" } else { "font/ttf" },
+            true),
         (&Method::GET, path) if !path.starts_with("/api/")  => Requests::serve_page("pages/index.html"),
 
         (&Method::GET, "/api/texts") => Requests::get_texts(req),
@@ -1047,6 +1208,9 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         (&Method::GET, path) if is_entry_image_path(path) => Requests::get_entry_image(req),
         (&Method::PUT, path) if is_entry_image_path(path) => Requests::put_entry_image(req).await,
         (&Method::DELETE, path) if is_entry_image_path(path) => Requests::delete_entry_image(req),
+        (&Method::GET, path) if is_entry_backup_path(path) => Requests::get_entry_backup(req),
+        (&Method::PUT, path) if is_entry_backup_path(path) => Requests::put_entry_backup(req).await,
+        (&Method::DELETE, path) if is_entry_backup_path(path) => Requests::delete_entry_backup(req),
         (&Method::POST, "/api/texts") => Requests::post_texts(req).await,
 
         (&Method::GET, "/api/categories") => Requests::get_categories(),

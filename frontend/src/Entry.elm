@@ -68,11 +68,6 @@ view_image entry = UI.el
   , UI.height (px 173) 
   , Border.color Config.widget_border_color
   , Border.width 2
-  , UI.inFront <| UI.el [ UI.moveRight 6, UI.moveDown 8, Background.color (rgb 0 0 0), UI.width (px 37), UI.height (px 37), Border.rounded 8 ] UI.none
-  , UI.inFront <| UI.link [ UI.moveRight 7, UI.moveDown 7 ]
-    { url = "/edit/" ++ String.fromInt entry.id
-    , label = fontawesome_text [ Font.size 40 ] "\u{f14b}" -- square-pen
-    }
   , UI.inFront <| UI.el 
     [ UI.padding 5
     , UI.alignBottom
@@ -83,7 +78,7 @@ view_image entry = UI.el
     ]
     <| UI.text <| entry_type_metadata_text entry.entry_type
   ]
-  <| UI.link
+  <| UI.el
     [ UI.width (px 300)
     , UI.height (px 169)
     , case entry.image of
@@ -92,16 +87,40 @@ view_image entry = UI.el
     , UI.centerX
     , UI.centerY
     ]
-    { label =
-      if entry.image /= Nothing
-        then UI.none
-        else UI.el 
-          [ UI.centerX
-          , UI.centerY
-          , Font.size 25
-          , Font.center
-          ] 
-          <| UI.text "Imagen"
+    <| if entry.image /= Nothing
+      then UI.none
+      else UI.el 
+        [ UI.centerX
+        , UI.centerY
+        , Font.size 25
+        , Font.center
+        ] 
+        <| UI.text "Imagen"
+
+backup_button : Maybe String -> UI.Element msg
+backup_button url =
+  let
+    (color, attributes) = case url of
+      Just _ -> (rgb 1 1 1, Config.image_button_attributes)
+      Nothing -> (rgb 0.7 0.7 0.7, Config.widget_common_attributes ++ [ Background.color <| Utils.set_alpha 0.5 Config.widget_background_color ])
+    label = fontawesome_text (attributes ++ [ Font.color color, Border.color color ]) "\u{f019}" -- download
+  in
+    case url of
+      Nothing -> label
+      Just actual_url -> UI.newTabLink [] { label = label, url = actual_url }
+
+view_image_with_buttons : Entry -> UI.Element msg
+view_image_with_buttons entry = UI.el 
+  [ UI.inFront <| UI.row [ UI.padding 7, UI.spacing 5 ]
+    [ UI.link []
+      { url = "/edit/" ++ String.fromInt entry.id
+      , label = fontawesome_text Config.image_button_attributes "\u{f303}" -- pen-to-square
+      }
+    , backup_button entry.backup
+    ]
+  ]
+  <| UI.link []
+    { label = view_image entry
     , url = entry.link
     }
 
@@ -165,7 +184,7 @@ view : (Entry -> msg) -> Entry -> UI.Element msg
 view message entry = UI.row 
   [ UI.spacing 10
   ]
-  [ view_image entry
+  [ view_image_with_buttons entry
   , view_entry_data message entry
   ]
 
