@@ -51,7 +51,7 @@ edit id =
       }
   in
     ( { default_model 
-        | edited_entry = Just { id = id, original_form = default_form, original_image = Image_None }
+        | edited_entry = Just { id = id, original_form = default_form, original_image = Image_None, original_backup = NoBackup }
         , app_state = State_Notify { message = "Loading...", close = do_not_close }
       }
     , Cmd.batch 
@@ -60,17 +60,16 @@ edit id =
         { url = "http://localhost:8080/api/texts/" ++ String.fromInt id
         , expect = Http.expectJson Msg_ReceivedEntryToEdit Entry.from_json 
         }
-      , Http.get 
-        { url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
-        , expect = Http.expectBytesResponse Msg_ReceivedImageToEdit (\response -> resolve (\bytes -> Ok bytes) response)
-        }
       ]
     )
 
 title : String
 title = "Nueva entrada"
 
-type Backup = NoBackup | Automatic | Manual (Maybe String)
+type Backup 
+  = NoBackup 
+  | Automatic String
+  | Manual (Maybe { filename : String, content_type : String, content : Bytes })
 
 type ComboId 
   = ComboId_Type 
@@ -97,6 +96,7 @@ type alias EditedEntry =
   { id : Int
   , original_form : NewEntry.Form
   , original_image : EntryImage
+  , original_backup : Backup
   }
 
 type alias Model = 
@@ -199,6 +199,12 @@ type Msg
   | Msg_ImageClearButtonClicked
   | Msg_ImageResetButtonClicked
 
+  -- Backup
+  | Msg_BackupFileButtonClicked
+  | Msg_BackupFileOpened File
+  | Msg_BackupLoaded { filename : String, content_type : String, content : Bytes }
+  | Msg_BackupAutomaticUrlChanged String
+
   -- Server
   | Msg_ResponseToSendArrived (Result Http.Error ())
   | Msg_ResponseToSaveArrived (Result Http.Error ())
@@ -210,7 +216,6 @@ type Msg
   | Msg_ReceivedWorks (Result Http.Error (List String))
   | Msg_ReceivedTags (Result Http.Error (List String))
   | Msg_ReceivedEntryToEdit (Result Http.Error Entry)
-  | Msg_ReceivedImageToEdit (Result Http.Error Bytes)
 
 -- update
 
@@ -408,6 +413,34 @@ update msg model = case msg of
     Nothing -> (model, Cmd.none)
     Just edited_entry -> ({ model | image = edited_entry.original_image }, Cmd.none)
 
+  -- Backup
+
+  Msg_BackupFileButtonClicked -> 
+    (model, File.Select.file ["application/pdf","text/html"] Msg_BackupFileOpened)
+
+  Msg_BackupFileOpened file ->
+    (model
+    , File.toBytes file
+      |> Task.map 
+        (\bytes -> 
+          let 
+            path = File.name file
+            extension = path |> String.split "." |> Utils.last
+          in
+            case extension of
+              Just "pdf"  -> Msg_BackupLoaded { filename = path, content_type = "application/pdf", content = bytes }
+              Just "html"  -> Msg_BackupLoaded { filename = path, content_type = "text/html", content = bytes }
+              _ -> Msg_Noop
+        )
+      |> Task.perform identity
+    )
+
+  Msg_BackupLoaded backup -> 
+    ({ model | backup = Manual <| Just backup }, Cmd.none)
+
+  Msg_BackupAutomaticUrlChanged new_url ->
+    ({ model | backup = Automatic new_url }, Cmd.none)
+
   -- Server
 
   Msg_ResponseToSendArrived response -> case response of
@@ -450,9 +483,33 @@ update msg model = case msg of
   Msg_ReceivedEntryToEdit result ->
     case result of
       Ok entry ->
-        ( { model 
-          | edited_entry = model.edited_entry |> Maybe.map (\e -> { e | original_form =
-            { link = entry.link
+        let
+          image = case entry.image of
+                Nothing -> Image_None
+                Just url -> Image_Url url
+          backup = case entry.backup of
+                Nothing -> NoBackup
+                Just url -> Automatic url
+        in
+          ( { model 
+            | edited_entry = model.edited_entry |> Maybe.map (\e -> { e 
+              | original_form =
+                { link = entry.link
+                , title = entry.title
+                , description = entry.description
+                , author = entry.author
+                , category = entry.category
+                , themes = entry.themes
+                , works_mentioned = entry.works_mentioned
+                , tags = entry.tags
+                , date_published = Just entry.date_published
+                , exceptional = entry.exceptional
+                , entry_type = entry.entry_type
+                }
+              , original_image = image
+              , original_backup = backup
+              })
+            , link = entry.link
             , title = entry.title
             , description = entry.description
             , author = entry.author
@@ -460,47 +517,17 @@ update msg model = case msg of
             , themes = entry.themes
             , works_mentioned = entry.works_mentioned
             , tags = entry.tags
-            , date_published = Just entry.date_published
-            , exceptional = entry.exceptional
+            , date_published = DatePicker.set_date (Just entry.date_published) model.date_published
             , entry_type = entry.entry_type
-            } })
-          , link = entry.link
-          , title = entry.title
-          , description = entry.description
-          , author = entry.author
-          , category = entry.category
-          , themes = entry.themes
-          , works_mentioned = entry.works_mentioned
-          , tags = entry.tags
-          , date_published = DatePicker.set_date (Just entry.date_published) model.date_published
-          , entry_type = entry.entry_type
-          , exceptional = entry.exceptional
-          , app_state = State_Editing
-          , type_metadata_input_string = entry_type_edit_metadata_string entry.entry_type
-          }
-        , Cmd.none
-        )
+            , exceptional = entry.exceptional
+            , app_state = State_Editing
+            , type_metadata_input_string = entry_type_edit_metadata_string entry.entry_type
+            , image = image
+            , backup = backup
+            }
+          , Cmd.none
+          )
       Err err -> ({ model | app_state = State_Notify { message = "Error al buscar entrada para editar:\n" ++ http_error_to_string err, close = do_not_close } }, Cmd.none)
-
-  Msg_ReceivedImageToEdit result -> 
-    case result of
-      Ok received_image -> case model.edited_entry of
-        Nothing -> (model, Cmd.none)
-        Just edited_entry ->
-          let
-            new_image = Image_File 
-              { url = "http://localhost:8080/api/texts/" ++ String.fromInt edited_entry.id ++ "/image"
-              , bytes = received_image 
-              , content_type = "image/png"
-              }
-          in 
-            ( { model 
-              | edited_entry = model.edited_entry |> Maybe.map (\e -> { e | original_image = new_image })
-              , image = new_image 
-              }
-            , Cmd.none
-            )
-      Err err -> ({ model | app_state = notify_error <| "Error at requesting image: " ++ http_error_to_string err }, Cmd.none)
 
 http_error_to_string : Http.Error -> String
 http_error_to_string error = case error of
@@ -531,13 +558,16 @@ make_new_entry_form model =
     Just error -> Err error
 
 resolve : (body -> Result String a) -> Http.Response body -> Result Http.Error a
-resolve toResult response =
+resolve toResult response = resolve_with_metadata (\_ b -> toResult b) response
+
+resolve_with_metadata : (Http.Metadata -> body -> Result String a) -> Http.Response body -> Result Http.Error a
+resolve_with_metadata toResult response =
         case response of
           Http.BadUrl_ url -> Err (Http.BadUrl url)
           Http.Timeout_ -> Err Http.Timeout
           Http.NetworkError_ -> Err Http.NetworkError
           Http.BadStatus_ metadata _ -> Err (Http.BadStatus metadata.statusCode)
-          Http.GoodStatus_ _ body -> Result.mapError Http.BadBody (toResult body)
+          Http.GoodStatus_ metadata body -> Result.mapError Http.BadBody (toResult metadata body)
 
 -- If delete_if_none is true, then Image_None means that a DELETE requests should be sent
 -- to that image resource. Otherwise, it means that Image_None is a noop. When creating a
@@ -576,6 +606,53 @@ put_image_task args image id =
           }
         else Task.succeed ()
 
+put_backup_task : { delete_if_none : Bool } -> Backup -> Int -> Task Http.Error ()
+put_backup_task args backup id = 
+  case backup of
+    Manual maybe_file -> case maybe_file of
+      Nothing -> Task.succeed ()
+      Just file -> Http.task
+        { method = "PUT"
+        , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+        , headers = []
+        , body = Http.bytesBody file.content_type file.content
+        , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+        , timeout = Nothing
+        }
+    Automatic url -> Http.task
+      { method = "GET"
+      , url = url
+      , headers = []
+      , body = Http.emptyBody
+      , resolver = Http.bytesResolver <| resolve_with_metadata 
+        (\metadata bytes -> 
+          case Utils.case_insensitive_dict_get "content-type" metadata.headers of
+            Nothing -> Err <| "Missing Content-Type header in response from url " ++ url
+            Just content_type -> Ok (content_type, bytes))
+      , timeout = Nothing
+      }
+      |> Task.andThen 
+        (\(content_type, bytes) -> Http.task
+          { method = "PUT"
+          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+          , headers = []
+          , body = Http.bytesBody content_type bytes
+          , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+          , timeout = Nothing
+          }
+        )
+    NoBackup ->
+      if args.delete_if_none
+        then Http.task
+          { method = "DELETE"
+          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+          , headers = []
+          , body = Http.emptyBody
+          , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+          , timeout = Nothing
+          }
+        else Task.succeed ()
+
 send_button_clicked : Model -> (Model, Cmd Msg)
 send_button_clicked model = case make_new_entry_form model of
   Ok form -> 
@@ -589,7 +666,13 @@ send_button_clicked model = case make_new_entry_form model of
           (\body -> Json.Decode.decodeString (Json.Decode.field "id" Json.Decode.int) body |> Result.mapError (\err -> Json.Decode.errorToString err))
         , timeout = Nothing
         }
-        |> Task.andThen (put_image_task { delete_if_none = False } model.image)
+        |> Task.andThen 
+          (\id -> Task.sequence
+            [ put_image_task { delete_if_none = False } model.image id
+            , put_backup_task { delete_if_none = False } model.backup id
+            ]
+          )
+        |> Task.map (always ())
     in
       (model
       , Task.attempt Msg_ResponseToSendArrived task 
@@ -622,8 +705,13 @@ save_button_clicked model = case make_new_entry_form model of
           if model.image == edited_entry.original_image
             then Task.succeed ()
             else put_image_task { delete_if_none = True } model.image edited_entry.id
+
+        send_backup_task =
+          if model.backup == edited_entry.original_backup
+            then Task.succeed()
+            else put_backup_task { delete_if_none = True } model.backup edited_entry.id
         
-        command = Task.sequence [ send_form_task, send_image_task ]
+        command = Task.sequence [ send_form_task, send_image_task, send_backup_task ]
           |> Task.map (\_ -> ()) -- Discard result. The result is a List () anyway so we don't really care
           |> Task.attempt Msg_ResponseToSaveArrived
       in
@@ -714,7 +802,7 @@ type_combo_button entry_type input_string currently_open_combo = UI.row [ UI.spa
 backup_display_string : Backup -> String
 backup_display_string backup = case backup of
   NoBackup -> "Sin copia"
-  Automatic -> "Automática"
+  Automatic _ -> "Automática"
   Manual _ -> "Manual"
 
 backup_combo_alternative : Backup -> UI.Element Msg
@@ -726,27 +814,28 @@ backup_combo_alternative backup =
 
 backup_row : Backup -> List (UI.Element Msg)
 backup_row backup = case backup of 
-  Automatic -> []
+  Automatic link -> [ input_box [] link Msg_BackupAutomaticUrlChanged ]
   NoBackup -> []
-  Manual path -> 
-    let error_color = if (path /= Nothing) then (rgb 1 1 1) else (rgb 1 0 0)
-    in
+  Manual file -> 
     [ Input.button []
-      { onPress = Nothing
+      { onPress = Just Msg_BackupFileButtonClicked
       , label = UI.el (Config.widget_common_attributes ++ [ Font.family [ fontawesome ] ]) (UI.text "\u{f07c}")
       }
-    , UI.el 
-      (Config.widget_common_attributes ++ [ UI.width UI.fill, Border.color error_color, Font.color error_color ])
-      (UI.text <| Maybe.withDefault "No hay archivo elegido" path)
+    , case file of 
+      Nothing -> UI.el 
+        (Config.widget_common_attributes ++ [ UI.width UI.fill, Border.color (rgb 1 0 0), Font.color (rgb 1 0 0) ])
+        (UI.text "No hay archivo elegido")
+      Just actual_file ->
+        input_box [] actual_file.filename (always Msg_Noop)
     ]
 
-backup_combo_button : Backup -> Maybe ComboId -> UI.Element Msg
-backup_combo_button backup currently_open_combo = UI.row [ UI.spacing 10, UI.width UI.fill ]
+backup_combo_button : Backup -> String -> Maybe ComboId -> UI.Element Msg
+backup_combo_button backup link currently_open_combo = UI.row [ UI.spacing 10, UI.width UI.fill ]
   <| Combo.view 
       (Config.widget_common_attributes ++ [ UI.padding 5, UI.width (px 150) ])
       { combo_state = backup
       , id = ComboId_Backup
-      , alternatives = [ NoBackup, Automatic, Manual Nothing ]
+      , alternatives = [ NoBackup, Automatic link, Manual Nothing ]
       , view_alternative = backup_combo_alternative
       , message = Msg_BackupCombo
       , currently_open_id = currently_open_combo
@@ -813,7 +902,7 @@ view_main_column form = UI.column
   , row "Autor"                 <| input_box_with_suggestions [] { text = form.author, suggestions = form.all_authors, message = Msg_AuthorChanged, id = ComboId_Author, currently_open_id = form.currently_open_combo, change_open = Msg_OpenComboChanged }
   , row "Fecha de publicación"  <| DatePicker.view Config.widget_common_attributes Msg_DatePublishedChanged form.date_published
   , row "Tipo"                  <| type_combo_button form.entry_type form.type_metadata_input_string form.currently_open_combo
-  , row "Copia de seguridad"    <| backup_combo_button form.backup form.currently_open_combo
+  , row "Copia de seguridad"    <| backup_combo_button form.backup form.link form.currently_open_combo
   , row "Descripción"           <| multiline_input_box form.description Msg_DescriptionChanged
   , row ""                      <| if form.edited_entry == Nothing then send_button else save_and_delete_buttons
   ]

@@ -1,6 +1,7 @@
 module Utils exposing (
   add_if, enumerate, at, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
   toupper_first, remove_all_but_n, format_seconds_as_hours_minutes_seconds,
+  case_insensitive_dict_get,
   missing_to_be_a_multiple_of, 
   fail_if_nothing, 
   grid, on_enter, set_alpha
@@ -9,6 +10,8 @@ module Utils exposing (
 import Json.Decode
 import Element as UI
 import Html.Events
+import Dict exposing (Dict)
+import Dict.Extra
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on lists
@@ -102,6 +105,17 @@ format_seconds_as_hours_minutes_seconds seconds =
     seconds_formatted = String.fromInt sub_minute_seconds |> pad_zero (minutes > 0) 2
   in
     hours_formatted ++ minutes_formatted ++ seconds_formatted
+    
+---------------------------------------------------------------------------------------------------------
+-- operations on numbers
+
+case_insensitive_dict_get : String -> Dict String v -> Maybe v
+case_insensitive_dict_get key =
+    let
+        lowerKey = String.toLower key
+    in
+        Dict.Extra.find (\k _ -> String.toLower k == lowerKey)
+            >> Maybe.map Tuple.second
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on numbers
