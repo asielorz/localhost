@@ -1,6 +1,6 @@
 module Utils exposing (
   add_if, enumerate, at, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
-  toupper_first, remove_all_but_n, format_seconds_as_hours_minutes_seconds,
+  toupper_first, remove_all_but_n, format_seconds_as_hours_minutes_seconds, is_url,
   case_insensitive_dict_get,
   missing_to_be_a_multiple_of, 
   fail_if_nothing, 
@@ -12,6 +12,7 @@ import Element as UI
 import Html.Events
 import Dict exposing (Dict)
 import Dict.Extra
+import Url
 
 ---------------------------------------------------------------------------------------------------------
 -- operations on lists
@@ -106,6 +107,11 @@ format_seconds_as_hours_minutes_seconds seconds =
   in
     hours_formatted ++ minutes_formatted ++ seconds_formatted
     
+is_url : String -> Bool
+is_url str = case Url.fromString str of
+  Just _ -> True
+  Nothing -> False
+
 ---------------------------------------------------------------------------------------------------------
 -- operations on numbers
 

@@ -3,7 +3,7 @@ module SearchQuery exposing (EntryTypeToSearch(..), empty_query, search_query, s
 import Calendar
 import Url.Builder
 import Utils
-import DateUtils
+import DateUtils exposing (parse_date_from_url)
 import Url.Parser exposing (query)
 import Url
 
@@ -108,20 +108,6 @@ search_query args =
       |> Utils.add_if args.exceptional (Url.Builder.string "exceptional" "true")
   in
     Url.Builder.toQuery parameters
-
-parse_date_from_url : String -> Maybe Calendar.Date
-parse_date_from_url parameter = 
-  case String.split "-" parameter of
-    (day_str::month_str::year_str::[]) -> case String.toInt day_str of
-      Nothing -> Nothing
-      Just year -> case String.toInt month_str of
-        Nothing -> Nothing
-        Just month -> case String.toInt year_str of
-          Nothing -> Nothing
-          Just day -> if month >= 1 && month <= 12
-            then Calendar.fromRawParts { day = day, month = DateUtils.int_to_month month, year = year }
-            else Nothing
-    _ -> Nothing 
 
 parse_bool_from_url : String -> Maybe Bool
 parse_bool_from_url parameter = case parameter of 

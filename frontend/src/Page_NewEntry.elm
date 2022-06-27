@@ -29,6 +29,9 @@ import Url
 import Entry exposing (Entry)
 import EntryType exposing (EntryType(..))
 import Json.Encode
+import Json.Decode
+import Dict exposing (Dict)
+import ParseMetaTags
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)
@@ -217,8 +220,13 @@ type Msg
   | Msg_ReceivedTags (Result Http.Error (List String))
   | Msg_ReceivedEntryToEdit (Result Http.Error Entry)
 
+  -- Autocomplete
+  | Msg_AutocompleteRequested
+  | Msg_ReceivedPageToAutocomplete (Result Http.Error (Dict String String))
+
 -- update
 
+sides : { top : Int, bottom : Int, left : Int, right : Int }
 sides = { top = 0, bottom = 0, left = 0, right = 0 }
 
 set_entry_type : EntryType -> Model -> Model
@@ -255,6 +263,17 @@ notify_success = State_Notify { message = "Nueva entrada añadida correctamente.
 
 notify_error : String -> AppState
 notify_error error_message = State_Notify { message = error_message, close = just_close_dialog }
+
+list_of_pairs_of_strings_from_json : Json.Decode.Decoder (Dict String String)
+list_of_pairs_of_strings_from_json =
+  (Json.Decode.list Json.Decode.string)
+  |> Json.Decode.andThen 
+    (\list -> case list of
+      first::second::[] -> Json.Decode.succeed (first, second)
+      _ -> Json.Decode.fail "List does not have 2 elements for key and value"
+    )
+  |> Json.Decode.list
+  |> Json.Decode.map Dict.fromList
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model = case msg of
@@ -529,6 +548,34 @@ update msg model = case msg of
           )
       Err err -> ({ model | app_state = State_Notify { message = "Error al buscar entrada para editar:\n" ++ http_error_to_string err, close = do_not_close } }, Cmd.none)
 
+  Msg_AutocompleteRequested ->
+    if Utils.is_url model.link
+      then
+        ( model
+        , Http.get
+          { url = "http://localhost:8080/api/meta_headers/" ++ model.link
+          , expect = Http.expectJson Msg_ReceivedPageToAutocomplete list_of_pairs_of_strings_from_json
+          }
+        )
+      else (model, Cmd.none)
+
+  Msg_ReceivedPageToAutocomplete result ->
+    case result of
+      Ok meta_headers ->
+        let
+          meta_info = ParseMetaTags.get_meta_info meta_headers
+        in
+          ( { model 
+            | title = Maybe.withDefault model.title meta_info.title
+            , author = Maybe.withDefault model.author meta_info.author
+            , date_published = Maybe.withDefault model.date_published (Maybe.map (\d -> DatePicker.set_date (Just d) model.date_published) meta_info.date_published)
+            , image = Maybe.withDefault model.image <| Maybe.map Image_Url meta_info.image
+            }
+          , Cmd.none
+          )
+      Err err -> 
+        ({ model | app_state = notify_error <| "Could not autocomplete fields from url " ++ model.link ++ "\n" ++ http_error_to_string err }, Cmd.none)
+
 http_error_to_string : Http.Error -> String
 http_error_to_string error = case error of
   Http.BadUrl str -> "Bad URL: " ++ str
@@ -609,6 +656,17 @@ put_image_task args image id =
 put_backup_task : { delete_if_none : Bool } -> Backup -> Int -> Task Http.Error ()
 put_backup_task args backup id = 
   case backup of
+    NoBackup ->
+      if args.delete_if_none
+        then Http.task
+          { method = "DELETE"
+          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+          , headers = []
+          , body = Http.emptyBody
+          , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+          , timeout = Nothing
+          }
+        else Task.succeed ()
     Manual maybe_file -> case maybe_file of
       Nothing -> Task.succeed ()
       Just file -> Http.task
@@ -631,7 +689,7 @@ put_backup_task args backup id =
             Just content_type -> Ok (content_type, bytes))
       , timeout = Nothing
       }
-      |> Task.andThen 
+      |> (Task.andThen 
         (\(content_type, bytes) -> Http.task
           { method = "PUT"
           , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
@@ -641,17 +699,7 @@ put_backup_task args backup id =
           , timeout = Nothing
           }
         )
-    NoBackup ->
-      if args.delete_if_none
-        then Http.task
-          { method = "DELETE"
-          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
-          , headers = []
-          , body = Http.emptyBody
-          , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
-          , timeout = Nothing
-          }
-        else Task.succeed ()
+      )
 
 send_button_clicked : Model -> (Model, Cmd Msg)
 send_button_clicked model = case make_new_entry_form model of
@@ -853,7 +901,7 @@ exceptional_toggle_button is_exceptional = fontawesome_text
 
 link_row : Model -> UI.Element Msg
 link_row form = UI.row [ UI.spacing 10, UI.width UI.fill ] 
-  [ UI.el [ UI.width UI.fill ] <| input_box [] form.link Msg_LinkChanged
+  [ UI.el [ UI.width UI.fill ] <| input_box [ Utils.on_enter Msg_AutocompleteRequested ] form.link Msg_LinkChanged
   , exceptional_toggle_button form.exceptional 
   ]
 
@@ -1032,7 +1080,7 @@ dialog state = case state of
       , UI.spacing 20
       , UI.width (px 600)
       ]
-      <| UI.column [ UI.width UI.fill ] [ UI.el [ UI.centerX ] (UI.text args.message) ]
+      <| UI.column [ UI.width UI.fill ] [ UI.paragraph [ UI.centerX ] [ UI.text args.message ] ]
 
   State_InputUrl args ->
     UI.el

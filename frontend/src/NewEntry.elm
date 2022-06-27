@@ -3,7 +3,6 @@ module NewEntry exposing (Form, to_json, validate)
 import EntryType exposing (EntryType(..))
 import Calendar
 import Json.Encode as Json
-import Url
 import DateUtils
 import Utils
 import Time
@@ -38,11 +37,6 @@ to_json form = Json.object
   , ("entry_type", EntryType.to_json form.entry_type)
   ]
 
-is_url : String -> Bool
-is_url str = case Url.fromString str of
-  Just _ -> True
-  Nothing -> False
-
 make_error : List (Bool, String) -> Maybe String
 make_error conditions =
   let errors = List.filterMap (\(cond, msg) -> if cond then Just msg else Nothing) conditions in
@@ -52,7 +46,7 @@ make_error conditions =
 
 validate : Form -> Maybe String
 validate form = make_error
-  [ (not <| is_url form.link, "- La URL no es válida")
+  [ (not <| Utils.is_url form.link, "- La URL no es válida")
   , (String.isEmpty form.title, "- El título está vacío")
   , (String.isEmpty form.description, "- La descripción está vacía")
   , (String.isEmpty form.author, "- El autor está vacío")

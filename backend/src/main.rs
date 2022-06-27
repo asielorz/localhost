@@ -504,7 +504,52 @@ async fn make_http_request(request : hyper::Request<hyper::Body>) -> hyper::Resu
 {
     let https = HttpsConnector::new();
     let client = hyper::Client::builder().build::<_, hyper::Body>(https);
+
     return client.request(request).await;
+}
+
+async fn make_get_http_request(url : &str) -> hyper::Result<hyper::Response<hyper::Body>>
+{
+    let request = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri(url)
+        .header("user-agent", "localhost/0.1.0")
+        .body(hyper::Body::from(""))
+        .unwrap();
+
+    return make_http_request(request).await;
+}
+
+fn get_value_between_quotes(source : &str) -> Option<&str>
+{
+    source
+        .split_once("=\"")
+        .map(|(_, after_first_quote)| after_first_quote)
+        .and_then(|s| s.split_once('"'))
+        .map(|(before_second_quote, _)| before_second_quote)
+}
+
+fn get_name_and_value_of_meta_string(source : &str) -> Option<(&str, &str)>
+{
+    let name_index = source.find("name=\"").or_else(|| source.find("property=\""))?;
+    let content_index = source.find("content=\"")?;
+    let name = get_value_between_quotes(source.split_at(name_index).1)?;
+    let content = get_value_between_quotes(source.split_at(content_index).1)?;
+    return Some((name, content));
+}
+
+fn html_meta_headers(html_source : &str) -> Vec<(&str, &str)>
+{
+    let mut headers = Vec::new();
+
+    // Skip the first because that is the part before the first meta
+    for part in html_source.split("<meta ").skip(1) {
+        if let Some(meta) = get_name_and_value_of_meta_string(part) {
+            headers.push(meta);
+        }
+    }  
+
+    return headers;
 }
 
 lazy_static! 
@@ -796,14 +841,7 @@ impl Requests
         } else {
             match serde_json::from_slice(&whole_body) as Result<ImageLinkForm, serde_json::Error> {
                 Ok(form) => { 
-                    let request = hyper::Request::builder()
-                        .method(hyper::Method::GET)
-                        .uri(&form.image_url)
-                        .header("user-agent", "localhost/0.1.0")
-                        .body(hyper::Body::from(""))
-                        .unwrap();
-
-                    let response = match make_http_request(request).await {
+                    let response = match make_get_http_request(&form.image_url).await {
                         Ok(r) => r,
                         Err(err) => {
                             println!("Request failed: {}", err);
@@ -1182,6 +1220,82 @@ impl Requests
             Err(_) => Requests::internal_server_error_response()
         }
     }
+
+    async fn forward_get_request(url : &str) -> Result<Response<Body>, hyper::Error>
+    {
+        let mut response = make_get_http_request(url).await?;
+
+        response.headers_mut().insert("Access-Control-Allow-Origin", hyper::header::HeaderValue::from_static("*"));
+        response.headers_mut().insert("Access-Control-Allow-Headers", hyper::header::HeaderValue::from_static("*"));
+
+        return Ok(response);
+    }
+
+    async fn get_meta_headers_at_url(request_uri : &hyper::Uri) -> Result<Response<Body>, hyper::Error>
+    {
+        let url = {
+            let mut url = String::from(request_uri.path().strip_prefix("/api/meta_headers/").unwrap());
+            if let Some(query) = request_uri.query() {
+                url += "?";
+                url += query;
+            }
+            url
+        };
+
+        println!("Url: {}", url);
+
+        let response = match make_get_http_request(&url).await {
+            Ok(r) => r,
+            Err(_) => return Requests::not_found_404_response()
+        };
+
+        println!("Request succesful");
+
+        // If the requested resource is not able to return a succesful response, return a 404.
+        if response.status() != StatusCode::OK {
+            println!("Response status: {}", response.status().as_u16());
+            return Requests::not_found_404_response();
+        }
+
+        println!("Response is OK");
+
+        // If the requested resource is not html, return a 404.
+        let content_type_header = get_header_case_insensitive(response.headers(), "Content-Type");
+
+        println!("{}", content_type_header.map(|x| x.to_str().unwrap()).unwrap_or("No content type"));
+
+        if !content_type_header.map_or(false, |h| h.to_str().unwrap().starts_with("text/html")) {
+            return Requests::not_found_404_response();
+        }
+
+        println!("Content type is text/html");
+
+        let whole_body = hyper::body::to_bytes(response.into_body()).await?;
+        let whole_text = match String::from_utf8(whole_body.to_vec()) {
+            Ok(x) => x,
+            Err(_) => return Requests::internal_server_error_response()
+        };
+
+        println!("Got body");
+
+        let headers = html_meta_headers(&whole_text);
+
+        for (name, value) in &headers {
+            println!("Header: {} {}", name, value);
+        }
+
+        if let Ok(json) = serde_json::to_string(&headers) {
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Headers", "*")
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .or_else(|_| Requests::internal_server_error_response());
+        } else {
+            return Requests::internal_server_error_response();
+        }
+    }
 }
 
 async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::Error> 
@@ -1218,6 +1332,9 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
         (&Method::GET, "/api/themes") => Requests::get_themes(),
         (&Method::GET, "/api/works") => Requests::get_works(),
         (&Method::GET, "/api/tags") => Requests::get_tags(),
+
+        (&Method::GET, path) if path.starts_with("/api/forward/") => Requests::forward_get_request(path.strip_prefix("/api/forward/").unwrap()).await,
+        (&Method::GET, path) if path.starts_with("/api/meta_headers/") => Requests::get_meta_headers_at_url(req.uri()).await,
 
         // Return the 404 Not Found for other routes.
         _ => Requests::not_found_404_response()

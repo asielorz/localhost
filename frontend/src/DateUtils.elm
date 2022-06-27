@@ -117,6 +117,20 @@ next_month m =
     then { month = Time.Jan, year = m.year + 1 }
     else { month = int_to_month <| month_to_int m.month + 1, year = m.year }
 
+parse_date_from_url : String -> Maybe Calendar.Date
+parse_date_from_url parameter = 
+  case String.split "-" parameter of
+    (day_str::month_str::year_str::[]) -> case String.toInt day_str of
+      Nothing -> Nothing
+      Just year -> case String.toInt month_str of
+        Nothing -> Nothing
+        Just month -> case String.toInt year_str of
+          Nothing -> Nothing
+          Just day -> if month >= 1 && month <= 12
+            then Calendar.fromRawParts { day = day, month = int_to_month month, year = year }
+            else Nothing
+    _ -> Nothing 
+
 -- export date to json in the format expected by the backend
 date_to_json : Calendar.Date -> Json.Encode.Value
 date_to_json date = Json.Encode.object
