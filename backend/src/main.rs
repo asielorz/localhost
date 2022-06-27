@@ -12,9 +12,16 @@ use percent_encoding::percent_decode_str;
 use std::cmp::{Ord, Ordering};
 use std::env;
 use rusqlite;
+use dirs;
 
 #[macro_use]
 extern crate lazy_static;
+
+#[derive(Deserialize)]
+struct ConfigFile
+{
+    database_path : String
+}
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 enum Month {
@@ -556,9 +563,6 @@ lazy_static!
 {
     static ref STATE: Mutex<State> = Mutex::new(State::new());
 }
-
-// TO DO: Parameterize
-static DATABASE_FILENAME : &str = "./target/entries.db";
 
 struct Requests{}
 impl Requests
@@ -1341,10 +1345,29 @@ async fn process_request(req : Request<Body>) -> Result<Response<Body>, hyper::E
     }
 }
 
+fn load_config_file<P : AsRef<std::path::Path>>(path : P) -> Result<ConfigFile, Box<dyn std::error::Error + Send + Sync>>
+{
+    Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
+}
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> 
 {
-    let connection = rusqlite::Connection::open(DATABASE_FILENAME)?;
+    let config_path = match dirs::home_dir() {
+        Some(dir) => { let mut osstr = dir.into_os_string(); osstr.push("/.localhost.json"); osstr },
+        None => {
+            println!("Could not find user directory in the system. The program will now close.");
+            return Ok(());
+        }
+    };
+    
+    println!("Config path: {}", config_path.to_str().unwrap());
+    
+    let config = load_config_file(config_path)?;
+
+    println!("Loading database at: {}", config.database_path);
+
+    let connection = rusqlite::Connection::open(config.database_path)?;
 
     connection.execute(
         "
