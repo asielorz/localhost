@@ -32,7 +32,6 @@ import Json.Encode
 import Json.Decode
 import Dict exposing (Dict)
 import ParseMetaTags
-import Html.Events exposing (onClick)
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)

@@ -1361,10 +1361,6 @@ impl Requests
 
         let headers = html_meta_headers(&whole_text);
 
-        for (name, value) in &headers {
-            println!("Header: {} {}", name, value);
-        }
-
         if let Ok(json) = serde_json::to_string(&headers) {
             return Response::builder()
                 .status(StatusCode::OK)
