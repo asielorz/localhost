@@ -13,6 +13,8 @@ use std::cmp::{Ord, Ordering};
 use std::env;
 use rusqlite;
 use dirs;
+use image;
+use image::imageops;
 
 #[macro_use]
 extern crate lazy_static;
@@ -180,6 +182,12 @@ struct Entry
 struct ImageLinkForm 
 {
     image_url : String
+}
+
+#[derive(Deserialize)]
+struct BackupLinkForm 
+{
+    backup_url : String
 }
 
 fn parse_date_query_argument(query_argument : &str) -> Option<Date>
@@ -559,6 +567,43 @@ fn html_meta_headers(html_source : &str) -> Vec<(&str, &str)>
     return headers;
 }
 
+fn scaled_width_and_height(width : u32, height : u32, target_width : u32, target_height : u32) -> (u32, u32, u32, u32)
+{
+    let width_left_full : (u32, u32) = (target_width, (target_width * height) / width);
+    let height_left_full : (u32, u32) = ((target_height * width) / height, target_height);
+
+    if width_left_full.1 >= target_height {
+        return (width_left_full.0, width_left_full.1, 0, (width_left_full.1 - target_height) / 2);
+    } else {
+        return (height_left_full.0, height_left_full.1, (width_left_full.0 - target_width) / 2, 0);
+    }
+}
+
+// Return the image in png format, with 8 bit rgba component pixels (32 bits per pixel), and size 300x169
+fn normalize_image(image_bytes : hyper::body::Bytes) -> image::ImageResult<Vec<u8>>
+{
+    let image_reader = image::io::Reader::new(std::io::Cursor::new(image_bytes))
+        .with_guessed_format()
+        .expect("Cursor IO never fails.");
+
+    let image = image_reader.decode()?;
+
+    let rgba8_image = image.to_rgba8();
+
+    let (width, height) = rgba8_image.dimensions();
+    let (scaled_width, scaled_height, crop_offset_x, crop_offset_y) = scaled_width_and_height(width, height, 300, 169);
+
+    let resized_image = imageops::resize(&rgba8_image, scaled_width, scaled_height, imageops::FilterType::CatmullRom);
+
+    let cropped_image = imageops::crop_imm(&resized_image, crop_offset_x, crop_offset_y, 300, 169).to_image();
+
+    let mut png_encoded_image = Vec::new();
+
+    cropped_image.write_to(&mut std::io::Cursor::new(&mut png_encoded_image), image::ImageOutputFormat::Png)?;
+
+    return Ok(png_encoded_image);
+}
+
 lazy_static! 
 {
     static ref STATE: Mutex<State> = Mutex::new(State::new());
@@ -871,6 +916,11 @@ impl Requests
             }
         };
 
+        let normalized_image_bytes = match normalize_image(image_bytes) {
+            Ok(x) => x,
+            Err(err) => return Requests::bad_request_response(&format!("Body is not a valid image: {}", err))
+        };
+
         let state = STATE.lock().unwrap();
         let database = state.database.as_ref().unwrap();
         match database.execute(
@@ -879,7 +929,7 @@ impl Requests
             SET image = ?
             WHERE entry_id = ?
             ",
-            rusqlite::params![rusqlite::blob::ZeroBlob(image_bytes.len() as i32), entry_id]
+            rusqlite::params![rusqlite::blob::ZeroBlob(normalized_image_bytes.len() as i32), entry_id]
         ) {
             // No values where modified.
             Ok(0) => { return Requests::not_found_404_response(); }
@@ -894,7 +944,7 @@ impl Requests
             Err(_) => { return Requests::internal_server_error_response(); }
         };
 
-        if let Err(_) = blob.write_at(&image_bytes, 0) {
+        if let Err(_) = blob.write_at(&normalized_image_bytes, 0) {
             return Requests::internal_server_error_response();
         };
 
@@ -988,19 +1038,10 @@ impl Requests
         }
     }
 
-    async fn put_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    fn write_entry_backup_to_database(entry_id : i64, body : hyper::body::Bytes, content_type : &str) -> Result<Response<Body>, hyper::Error>
     {
-        let entry_id = get_entry_id_from_path(req.uri().path());
-
-        let content_type = match get_header_case_insensitive(req.headers(), "Content-Type") {
-            None => { return Requests::bad_request_response("Missing content type hader"); }
-            Some(value) => String::from(value.to_str().unwrap())
-        };
-
-        let whole_body = hyper::body::to_bytes(req.into_body()).await?;
-
         let blob_header_length = content_type.len() + 1; // + 1 for storing the size.
-        let blob_length = blob_header_length + whole_body.len();
+        let blob_length = blob_header_length + body.len();
 
         let state = STATE.lock().unwrap();
         let database = state.database.as_ref().unwrap();
@@ -1038,7 +1079,7 @@ impl Requests
         };
 
         // Write the actual backup data.
-        if let Err(_) = blob.write_at(&whole_body, blob_header_length) {
+        if let Err(_) = blob.write_at(&body, blob_header_length) {
             return Requests::internal_server_error_response();
         };
 
@@ -1049,6 +1090,42 @@ impl Requests
             .header("Content-Type", "application/json")
             .body(Body::from(format!(r#"{{"link":"http://localhost:8080/api/texts/{}/backup"}}"#, entry_id)))
             .or_else(|_| Requests::internal_server_error_response())
+    }
+
+    async fn put_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
+    {
+        let entry_id = get_entry_id_from_path(req.uri().path());
+
+        let content_type = match get_header_case_insensitive(req.headers(), "Content-Type") {
+            None => { return Requests::bad_request_response("Missing content type header"); }
+            Some(value) => String::from(value.to_str().unwrap())
+        };
+
+        let whole_body = hyper::body::to_bytes(req.into_body()).await?;
+
+        if content_type == "application/json" {
+            if let Ok(form) = serde_json::from_slice(&whole_body) as Result<BackupLinkForm, serde_json::Error> {
+                let response = match make_get_http_request(&form.backup_url).await {
+                    Ok(x) => x,
+                    Err(err) => return Requests::bad_request_response(&format!("Request to url {} failed: {}", form.backup_url, err))
+                };
+                
+                if response.status() != StatusCode::OK {
+                    return Requests::bad_request_response(&format!("Could not get resource at url {}", form.backup_url));
+                }
+                
+                let response_content_type = match get_header_case_insensitive(response.headers(), "Content-Type") {
+                    None => { return Requests::bad_request_response(&format!("Missing content type header in resource at url {}", form.backup_url)); }
+                    Some(value) => String::from(value.to_str().unwrap())
+                };
+
+                let response_body = hyper::body::to_bytes(response.into_body()).await?;
+
+                return Requests::write_entry_backup_to_database(entry_id, response_body, &response_content_type)
+            }
+        }
+
+        return Requests::write_entry_backup_to_database(entry_id, whole_body, &content_type)
     }
 
     fn delete_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>

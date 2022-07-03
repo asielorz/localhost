@@ -32,6 +32,7 @@ import Json.Encode
 import Json.Decode
 import Dict exposing (Dict)
 import ParseMetaTags
+import Html.Events exposing (onClick)
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)
@@ -89,6 +90,7 @@ type AppState
   = State_Editing 
   | State_Notify { message : String, close : CloseDialogFunction }
   | State_InputUrl { url : String }
+  | State_YesNoConfirmation { message : String, on_yes : Msg }
 
 type EntryImage
   = Image_None
@@ -189,6 +191,7 @@ type Msg
   | Msg_Send
   | Msg_Save
   | Msg_Delete
+  | Msg_DeleteConfirmed
   | Msg_CloseResponseDialog CloseDialogFunction
   | Msg_OpenComboChanged (Maybe ComboId)
 
@@ -365,7 +368,9 @@ update msg model = case msg of
   Msg_Save ->
     save_button_clicked model
 
-  Msg_Delete -> case model.edited_entry of
+  Msg_Delete -> ({ model | app_state = State_YesNoConfirmation { message = "¿Estás seguro de que quieres borrar esta entrada de la base de datos?", on_yes = Msg_DeleteConfirmed } }, Cmd.none)
+
+  Msg_DeleteConfirmed -> case model.edited_entry of
     Nothing -> (model, Cmd.none)
     Just edited_entry ->
       (model
@@ -678,28 +683,13 @@ put_backup_task args backup id =
         , timeout = Nothing
         }
     Automatic url -> Http.task
-      { method = "GET"
-      , url = url
-      , headers = []
-      , body = Http.emptyBody
-      , resolver = Http.bytesResolver <| resolve_with_metadata 
-        (\metadata bytes -> 
-          case Utils.case_insensitive_dict_get "content-type" metadata.headers of
-            Nothing -> Err <| "Missing Content-Type header in response from url " ++ url
-            Just content_type -> Ok (content_type, bytes))
-      , timeout = Nothing
-      }
-      |> (Task.andThen 
-        (\(content_type, bytes) -> Http.task
-          { method = "PUT"
-          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
-          , headers = []
-          , body = Http.bytesBody content_type bytes
-          , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
-          , timeout = Nothing
-          }
-        )
-      )
+        { method = "PUT"
+        , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+        , headers = []
+        , body = Http.jsonBody <| Json.Encode.object [ ("backup_url", Json.Encode.string url) ]
+        , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
+        , timeout = Nothing
+        }
 
 send_button_clicked : Model -> (Model, Cmd Msg)
 send_button_clicked model = case make_new_entry_form model of
@@ -911,6 +901,7 @@ send_button = Input.button
   [ Background.color (rgb 0 0.6 0)
   , Font.center
   , UI.width UI.fill
+  , UI.mouseOver [ Background.color (rgb 0 0.7 0) ]
   ])
   { onPress = Just Msg_Send
   , label = UI.text "Enviar"
@@ -926,6 +917,7 @@ save_and_delete_buttons = UI.column
       [ Background.color (rgb 0 0.6 0)
       , Font.center
       , UI.width UI.fill
+      , UI.mouseOver [ Background.color (rgb 0 0.7 0) ]
       ])
       { onPress = Just Msg_Save
       , label = UI.text "Guardar"
@@ -935,6 +927,7 @@ save_and_delete_buttons = UI.column
       [ Background.color (rgb 0.8 0 0)
       , Font.center
       , UI.width UI.fill
+      , UI.mouseOver [ Background.color (rgb 1 0 0) ]
       ])
       { onPress = Just Msg_Delete
       , label = UI.text "Borrar"
@@ -1105,6 +1098,35 @@ dialog state = case state of
           , Input.button (UI.mouseOver [ Background.color Config.widget_hovered_background_color ] :: Config.widget_common_attributes)
             { onPress = if Url.fromString args.url == Nothing then Just <| Msg_CloseResponseDialog just_close_dialog else Just <| Msg_ImageUrlChosen args.url
             , label = fontawesome_text [] "\u{f00c}" -- check
+            }
+          ]
+        ]
+
+  State_YesNoConfirmation args ->
+    UI.el
+      [ Background.color Config.background_color
+      , Border.rounded 5
+      , Border.width 3
+      , Border.color Config.widget_border_color
+      , UI.centerX
+      , UI.centerY
+      , UI.paddingXY 30 30
+      , UI.spacing 20
+      , UI.width (px 600)
+      ]
+      <| UI.column 
+        [ UI.width UI.fill
+        , UI.spacing 20
+        ] 
+        [ UI.el [ UI.centerX ] <| UI.paragraph [] [ UI.text args.message ]
+        , UI.row [ UI.centerX, UI.spacing 10 ] 
+          [ Input.button (Config.widget_common_attributes ++ [ UI.width (px 80), Background.color (rgb 0.8 0 0), UI.mouseOver [ Background.color (rgb 1 0 0) ] ])
+            { label = UI.el [ UI.centerX ] <| UI.text "Sí"
+            , onPress = Just args.on_yes
+            }
+          , Input.button (UI.width (px 80) :: Config.image_button_attributes)
+            { label = UI.el [ UI.centerX ] <| UI.text "No"
+            , onPress = Just <| Msg_CloseResponseDialog just_close_dialog
             }
           ]
         ]
