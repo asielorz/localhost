@@ -131,8 +131,19 @@ title_row entry = UI.row
   , UI.spacing 10
   ] 
   [ fontawesome_text [] <| EntryType.fontawesome_icon entry.entry_type
-  , UI.link [ UI.alignLeft ] { url = entry.link, label = UI.text entry.title }
+  , UI.el [ UI.width UI.fill, UI.height UI.fill, UI.inFront <| UI.link [ UI.width UI.fill, UI.clip, UI.height (px 100), UI.alignTop ] { url = entry.link, label = UI.text entry.title } ] UI.none
   , fontawesome_text [ UI.alignRight, Font.color <| if entry.exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4) ] "\u{f005}" --fa-star
+  ]
+
+title_row_full : Entry -> UI.Element msg
+title_row_full entry = UI.row 
+  [ Font.size 25
+  , UI.width UI.fill
+  , UI.spacing 10
+  ] 
+  [ fontawesome_text [ UI.alignTop ] <| EntryType.fontawesome_icon entry.entry_type
+  , UI.paragraph [ UI.width UI.fill, UI.height UI.fill, UI.alignTop ] [ UI.text entry.title ]
+  , fontawesome_text [ UI.alignRight, UI.alignTop, Font.color <| if entry.exceptional then (rgb 1 1 0) else (rgb 0.4 0.4 0.4) ] "\u{f005}" --fa-star
   ]
 
 author_dates_row : Entry -> UI.Element msg
@@ -183,6 +194,7 @@ view_entry_data message entry = UI.column
 view : (Entry -> msg) -> Entry -> UI.Element msg
 view message entry = UI.row 
   [ UI.spacing 10
+  , UI.centerX
   ]
   [ view_image_with_buttons entry
   , view_entry_data message entry
@@ -193,14 +205,14 @@ view_full entry = UI.column
   [ UI.width UI.fill
   , UI.spacing 5
   ]
-  [ title_row entry
+  [ title_row_full entry
   , author_dates_row entry
   , UI.el [ UI.centerX, UI.paddingXY 0 20 ] <| view_image entry
   , UI.el [ UI.centerX ] <| view_tags_wrapped 4 entry
   -- Separated in two elements because if padding is in the same element as scrollbar, the padding pixels are considered
   -- as part of the element for the clipping and so the content leaks into the padding when scrolling.
   , UI.el [ UI.paddingEach { left = 20, top = 20, bottom = 20, right = 0 } ] 
-    <| UI.el [ UI.scrollbarY, UI.height (px 400), UI.paddingEach { left = 0, top = 0, bottom = 0, right = 20 } ] <| view_description entry
+    <| UI.el [ UI.scrollbarY, UI.height (px 350), UI.paddingEach { left = 0, top = 0, bottom = 0, right = 20 } ] <| view_description entry
   ]
 
 -- from_json

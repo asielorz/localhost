@@ -26,4 +26,4 @@ header_banner = UI.row
   ]
 
 with_banners : UI.Element msg -> UI.Element msg
-with_banners view_model = UI.column [ UI.width UI.fill, UI.height UI.fill ] [ header_banner, view_model ]
+with_banners view_model = UI.column [ UI.width UI.fill, UI.height UI.fill, UI.scrollbarY ] [ header_banner, view_model ]

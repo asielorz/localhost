@@ -1153,6 +1153,7 @@ view model = UI.el
   , UI.inFront <| dialog model.app_state
   , UI.width UI.fill
   , UI.height UI.fill
+  , UI.scrollbarY
   ]
   <| UI.el
     [ UI.width UI.fill

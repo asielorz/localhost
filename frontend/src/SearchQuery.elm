@@ -30,6 +30,7 @@ type alias QueryArgs =
   , saved_between_from : Maybe Calendar.Date
   , saved_between_until : Maybe Calendar.Date
   , exceptional : Bool
+  , offset : Int
   }
 
 empty_query : QueryArgs
@@ -48,6 +49,7 @@ empty_query =
   , saved_between_from = Nothing
   , saved_between_until = Nothing
   , exceptional = False
+  , offset = 0
   }
 
 date_to_string : Calendar.Date -> String
@@ -81,6 +83,7 @@ search_query : QueryArgs -> String
 search_query args = 
   let
     add_string name str = Utils.add_if (not <| String.isEmpty str) (Url.Builder.string name str)
+    add_int name i = Utils.add_if (i /= 0) (Url.Builder.int name i)
 
     add_list name list = 
       let filtered_list = List.filter (not << String.isEmpty) list in
@@ -106,6 +109,7 @@ search_query args =
       |> add_date "saved_between_from" args.saved_between_from
       |> add_date "saved_between_until" args.saved_between_until
       |> Utils.add_if args.exceptional (Url.Builder.string "exceptional" "true")
+      |> add_int "offset" args.offset
   in
     Url.Builder.toQuery parameters
 

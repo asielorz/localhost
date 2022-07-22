@@ -2,6 +2,7 @@ module Page_Search exposing (Model, Msg, title, init, update, view, navigate_to)
 
 import Element as UI exposing (px, rgb, rgba)
 import Element.Font as Font
+import Element.Input as Input
 import Element.Border as Border
 import Element.Events as Events
 import Element.Background as Background
@@ -18,6 +19,7 @@ import Url exposing (Url)
 import Url.Parser exposing (query)
 import Fontawesome exposing (fontawesome_text)
 import Combo
+import Html.Attributes exposing (default)
 
 type ComboId
   = ComboId_Type
@@ -29,6 +31,7 @@ type ComboId
 
 type alias Model = 
   { entries : List Entry
+  , total_query_size : Int -- Including pages that have not been requested yet
 
   -- search
   , link : String
@@ -77,9 +80,10 @@ type Msg
   | Msg_DateSavedUntilChanged DatePicker.Msg
   | Msg_ExceptionalChanged Bool
   | Msg_OpenComboChanged (Maybe ComboId)
+  | Msg_MorePressed
 
   -- Http from server
-  | Msg_ReceivedSearchResults (Result Http.Error (List Entry))
+  | Msg_ReceivedSearchResults (Result Http.Error SearchResponse)
   | Msg_ReceivedCategories (Result Http.Error (List String))
   | Msg_ReceivedAuthors (Result Http.Error (List String))
   | Msg_ReceivedThemes (Result Http.Error (List String))
@@ -98,6 +102,7 @@ init =
   let
     default_model =
       { entries = []
+      , total_query_size = 0
 
       , link = ""
       , title = ""
@@ -161,10 +166,24 @@ navigate_to url model = case url.query of
           (updated_model, texts_query_command ("?" ++ query_string))
 
 -- query_string is only the parameters. The part that starts with '?'. It is assumed to start with '?'.
+type alias SearchResponse = 
+  { entries : List Entry
+  , current_offset : Int
+  , next_offset : Int
+  , total_size : Int
+  }
+
+search_response_from_json : Json.Decode.Decoder SearchResponse
+search_response_from_json = Json.Decode.map4 SearchResponse
+      (Json.Decode.field "entries" (Json.Decode.list Entry.from_json))
+      (Json.Decode.field "current_offset" Json.Decode.int) 
+      (Json.Decode.field "next_offset" Json.Decode.int) 
+      (Json.Decode.field "total_size" Json.Decode.int) 
+
 texts_query_command : String -> Cmd Msg
 texts_query_command query_string = Http.get 
   { url = "http://localhost:8080/api/texts" ++ query_string
-  , expect = Http.expectJson Msg_ReceivedSearchResults (Json.Decode.list Entry.from_json) 
+  , expect = Http.expectJson Msg_ReceivedSearchResults search_response_from_json
   }
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -225,8 +244,16 @@ update msg model = case msg of
   Msg_OpenComboChanged new_open_combo ->
      ({ model | currently_open_combo = new_open_combo }, Cmd.none)
 
-  Msg_ReceivedSearchResults new_results -> case new_results of
-    Ok (actual_results) -> ({ model | entries = actual_results }, Cmd.none)
+  Msg_MorePressed ->
+    (model, texts_query_command <| search_query model (List.length model.entries))
+
+  Msg_ReceivedSearchResults response -> case response of
+    Ok (search_response) -> 
+      (if search_response.current_offset == 0
+        then { model | entries = search_response.entries, total_query_size = search_response.total_size }
+        else { model | entries = model.entries ++ search_response.entries }
+      , Cmd.none
+      )
     Err _ -> (model, Cmd.none)
 
   Msg_ReceivedCategories result ->
@@ -275,35 +302,36 @@ exceptional_toggle_button is_exceptional = fontawesome_text
   ]
   "\u{f005}" --fa-star
 
+search_query : Model -> Int -> String
+search_query model offset = SearchQuery.search_query
+  { link = model.link
+  , title = model.title
+  , author = model.author
+  , description = model.description
+  , category = model.category
+  , works_mentioned = model.works_mentioned
+  , themes = model.themes
+  , tags = model.tags
+  , type_to_search = model.type_to_search
+  , published_between_from = DatePicker.date model.published_between_from
+  , published_between_until = DatePicker.date model.published_between_until
+  , saved_between_from = DatePicker.date model.saved_between_from
+  , saved_between_until = DatePicker.date model.saved_between_until
+  , exceptional = model.exceptional
+  , offset = offset
+  }
+
 search_button: Model -> UI.Element Msg
-search_button model = 
-  let
-    query = SearchQuery.search_query
-      { link = model.link
-      , title = model.title
-      , author = model.author
-      , description = model.description
-      , category = model.category
-      , works_mentioned = model.works_mentioned
-      , themes = model.themes
-      , tags = model.tags
-      , type_to_search = model.type_to_search
-      , published_between_from = DatePicker.date model.published_between_from
-      , published_between_until = DatePicker.date model.published_between_until
-      , saved_between_from = DatePicker.date model.saved_between_from
-      , saved_between_until = DatePicker.date model.saved_between_until
-      , exceptional = model.exceptional
-      }
-  in
-    UI.link 
-      (Config.widget_common_attributes ++
-      [ Background.color (rgb 0 0.6 0)
-      , Font.center
-      , UI.width UI.fill
-      ])
-      { url = "/search" ++ query
-      , label = UI.text "Buscar"
-      }
+search_button model = UI.link 
+  (Config.widget_common_attributes ++
+  [ Background.color (rgb 0 0.6 0)
+  , UI.mouseOver [ Background.color (rgb 0 0.7 0) ]
+  , Font.center
+  , UI.width UI.fill
+  ])
+  { url = "/search" ++ search_query model 0
+  , label = UI.text "Buscar"
+  }
 
 entry_type_display_string : EntryTypeToSearch -> String
 entry_type_display_string entry_type = case entry_type of
@@ -388,21 +416,47 @@ view_search_column attributes model = UI.column
   , search_button model
   ]
 
-view_model : Model -> UI.Element Msg
-view_model model = UI.row 
-  [ UI.centerX
-  , UI.width UI.fill
-  , UI.height UI.fill
-  ]
-  [ view_search_column [ UI.width (UI.fillPortion 1), UI.height UI.fill, UI.centerX ] model
-  , UI.el 
-    [ UI.width (UI.fillPortion 3)
+view_entries : List (UI.Attribute Msg) -> List Entry -> Int -> UI.Element Msg
+view_entries attributes entries total_query_size =
+  let
+    initial_message = "Mostrando " ++ String.fromInt (List.length entries) ++ " de " ++ String.fromInt total_query_size ++ " resultados:"
+    entry_elements = UI.text initial_message :: (List.map (Entry.view Msg_EntrySelected) entries)
+
+    more_button = Input.button 
+      (Config.widget_common_attributes ++
+      [ Background.color (rgb 0 0.6 0)
+      , UI.mouseOver [ Background.color (rgb 0 0.7 0) ]
+      , Font.center
+      , UI.width UI.fill
+      ])
+      { onPress = Just Msg_MorePressed
+      , label = UI.text "Más" 
+      }
+
+    column_elements = if List.length entries < total_query_size
+      then entry_elements ++ [ more_button ]
+      else entry_elements
+  in
+    UI.el attributes <| UI.column [ UI.spacing 20, UI.centerX ] column_elements
+
+view_model : List (UI.Attribute Msg) -> Model -> UI.Element Msg
+view_model attributes model = UI.row 
+  attributes
+  [ view_search_column 
+    [ UI.width (UI.fillPortion 2)
     , UI.height UI.fill
     , UI.centerX
-    , UI.centerY
+    , UI.scrollbarY 
+    ]
+    model
+  , view_entries 
+    [ UI.width (UI.fillPortion 5)
+    , UI.height UI.fill
+    , UI.scrollbarY
+    , UI.centerX
     , UI.padding 20
     ]
-     <| UI.column [ UI.centerX, UI.spacing 20 ] (List.map (Entry.view Msg_EntrySelected) model.entries)
+    model.entries model.total_query_size
   ]
 
 dialog_background : UI.Element Msg
@@ -430,7 +484,7 @@ view_selected_entry_dialog entry = UI.el
   <| Entry.view_full entry
 
 view : Model -> UI.Element Msg
-view model = UI.el 
+view model = view_model
   [ UI.width UI.fill
   , UI.height UI.fill
   , UI.centerX
@@ -439,5 +493,7 @@ view model = UI.el
   , UI.inFront <| case model.dialog_entry of 
     Nothing -> UI.none 
     Just entry -> view_selected_entry_dialog entry
+  , UI.scrollbarY
+  , Background.color Config.background_color
   ] 
-  <| view_model model
+  model

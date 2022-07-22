@@ -144,6 +144,7 @@ view model =
           , UI.width UI.fill
           , UI.height UI.fill
           , Font.color (rgb 1 1 1)
+          , UI.scrollbarY
           ]
           <| Banner.with_banners page_content
       ]

@@ -78,17 +78,17 @@ fn to_json_http_response<T : Serialize>(entries : &T) -> Result<Response<Body>, 
 
 pub fn get_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
 {
-    let (sql_query, sql_params) = match req.uri().query() {
+    let (sql_query, sql_params, offset) = match req.uri().query() {
         Some(query_text) => match url_to_sql_query(query_text) {
             Some(result) => result,
             None => { return internal_server_error_response(); }
         },
-        None => (String::from("SELECT * FROM entries LIMIT 10"), Vec::new())
+        None => (String::from(""), Vec::new(), 0)
     };
 
     let served_entries = {
         let state = global_state().lock().unwrap();
-        match select_texts(state.database.as_ref().unwrap(), &sql_query, sql_params.iter().map(|x| x as &dyn rusqlite::ToSql).collect::<Vec<&dyn rusqlite::ToSql>>().as_slice()) {
+        match select_texts(state.database.as_ref().unwrap(), &sql_query, sql_params.iter().map(|x| x as &dyn rusqlite::ToSql).collect::<Vec<&dyn rusqlite::ToSql>>().as_slice(), offset) {
             Ok(entries) => entries,
             Err(err) => {
                 println!("SQL query error: {}", err);
@@ -106,7 +106,7 @@ pub fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Err
     if let Ok(entry_id) = path.parse::<i64>() {
         let served_entries = {
             let state = global_state().lock().unwrap();
-            match select_texts(state.database.as_ref().unwrap(), "SELECT * FROM entries WHERE entry_id = ?1", [ entry_id ]) {
+            match select_texts(state.database.as_ref().unwrap(), "entry_id = ?", [ entry_id ], 0) {
                 Ok(entries) => entries,
                 Err(err) => {
                     println!("{}", err);
@@ -114,10 +114,10 @@ pub fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Err
                 }
             }
         };
-        if served_entries.is_empty() {
+        if served_entries.entries.is_empty() {
             return not_found_404_response();
         } else {
-            return to_json_http_response(&served_entries[0]);
+            return to_json_http_response(&served_entries.entries[0]);
         }
     } else {
         return bad_request_response(&format!("Could not convert '{}' to an entry id", path));
@@ -764,16 +764,33 @@ pub async fn get_meta_headers_at_url(request_uri : &hyper::Uri) -> Result<Respon
     }
 }
 
-fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql_query : &str, sql_params : Params) -> rusqlite::Result<Vec<Entry>> {
+#[derive(Serialize)]
+struct GetTextsResponse
+{
+    entries : Vec<Entry>,
+    current_offset : usize,
+    next_offset : usize,
+    total_size : usize,
+}
+
+fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, where_query : &str, sql_params : Params, offset : usize) -> rusqlite::Result<GetTextsResponse> {
     let mut found_entries : Vec<Entry> = Vec::new();
 
-    let mut statement = database.prepare(sql_query)?;
+    let sql_query = if where_query.is_empty() {
+        format!("SELECT *, count(*) OVER() AS full_count FROM entries LIMIT 10 OFFSET {}", offset)
+    } else {
+        format!("SELECT *, count(*) OVER() AS full_count FROM entries WHERE {} LIMIT 10 OFFSET {}", where_query, offset)
+    };
+
+    let mut statement = database.prepare(&sql_query)?;
     let mut rows = statement.query(sql_params)?;
+    let mut total_size : usize = 0;
     while let Some(row) = rows.next()? {
         let id : i64 = row.get(0)?;
         let entry_type_index : i32 = row.get(12)?;
         let entry_type_metadata : i32 = row.get(13)?;
-        
+        total_size = row.get(16)?;
+
         found_entries.push(Entry{
             id : id,
             link : row.get(1)?,
@@ -793,7 +810,12 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, sql
         });
     }
 
-    return Ok(found_entries);
+    return Ok(GetTextsResponse{
+        next_offset : offset + found_entries.len(),
+        entries : found_entries,
+        current_offset : offset,
+        total_size : total_size
+    });
 }
 
 fn run_sql<Params : rusqlite::Params>(database : &rusqlite::Connection, command : &str, params : Params) -> rusqlite::Result<usize>
