@@ -223,7 +223,7 @@ pub fn get_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Err
 
     let state = global_state().lock().unwrap();
     let database = state.database.as_ref().unwrap();
-
+ 
     let mut statement = match database.prepare("SELECT image FROM entries WHERE entry_id = ?") {
         Ok(s) => s,
         Err(_) => { return internal_server_error_response(); }
@@ -257,6 +257,7 @@ pub fn get_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Err
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Headers", "*")
                 .header("Content-Type", "image/png")
+                .header("Cache-Control", "public, max-age=31919000, immutable")
                 .body(Body::from(copy))
                 .or_else(|_| internal_server_error_response())
         } else {
@@ -428,6 +429,7 @@ pub fn get_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                 .status(StatusCode::OK)
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Headers", "*")
+                .header("Cache-Control", "public, max-age=31919000, immutable")
                 .header("Content-Type", content_type)
                 .body(Body::from(content_data))
                 .or_else(|_| internal_server_error_response())
