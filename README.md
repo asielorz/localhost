@@ -1,2 +1,5 @@
 # localhost
-Webapp that runs on localhost for archiving and easily searching things I read
+
+This project contains the frontend and backend for a webapp that runs on localhost in my computer. The purpose of this app is for me to have a place where I archive everything interesting I read or watch with a whole lot of metadata, and to have an easy to use and very detailed search page to retrieve the archived things. It can also save backups of articles and papers so that, in case the links become invalid, I can still read the saved documents. All the data is saved in a local SQLite database that is automatically backed up and shared among my computers using MEGA Sync. The server is executed at operating system startup and it can be interacted with from the browser using the webapp.
+
+The main purpose of this project was for me to learn elm and rust, while also doing a useful application that I would want to use in the future. It is not meant for other people to use it. I am not really interested in maintaining the project, making it usable for other people or making money from this. This is why, for example, it is not localized or translated to any language. It is mainly a learning project and a useful tool for me to use at home.
