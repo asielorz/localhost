@@ -1,2 +1,2 @@
 cd backend
-start cargo run
+cargo test && start cargo run
