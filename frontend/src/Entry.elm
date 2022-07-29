@@ -11,7 +11,7 @@ import Fontawesome exposing (fontawesome_text)
 import Config
 import DateUtils
 import Json.Decode as Json
-import Utils exposing (chunk)
+import Utils
 
 type alias Entry =
   { id : Int
@@ -150,16 +150,12 @@ author_dates_row : Entry -> UI.Element msg
 author_dates_row entry = UI.el [ Font.size 15 ] <| UI.text <| 
   entry.author ++ " · " ++ (DateUtils.date_to_string entry.date_published) ++ " · " ++ (DateUtils.date_to_string entry.date_saved)
 
-view_tags_wrapped : Int -> Entry -> UI.Element msg
-view_tags_wrapped chunk_by entry = Utils.grid
-  { column_attributes = [ UI.spacing 5 ]
-  , row_attributes = [ UI.spacing 10 ]
-  , view_element = identity
-  , grid_elements = chunk chunk_by <| 
-    (List.map (view_extra_info ExtraInfo_Theme) entry.themes) ++ 
-    (List.map (view_extra_info ExtraInfo_Work) entry.works_mentioned) ++ 
-    (List.map (view_extra_info ExtraInfo_Tag) entry.tags)
-  }
+view_tags_wrapped : List (UI.Attribute msg) -> Entry -> UI.Element msg
+view_tags_wrapped attributes entry = UI.wrappedRow 
+  (UI.spacing 5 :: attributes) <| 
+  (List.map (view_extra_info ExtraInfo_Theme) entry.themes) ++ 
+  (List.map (view_extra_info ExtraInfo_Work) entry.works_mentioned) ++ 
+  (List.map (view_extra_info ExtraInfo_Tag) entry.tags)
 
 view_description : Entry -> UI.Element msg
 view_description entry = 
@@ -177,19 +173,23 @@ view_description entry =
       <| List.map (\p -> UI.paragraph [] [ UI.text p ]) paragraphs
 
 view_entry_data : (Entry -> msg) -> Entry -> UI.Element msg
-view_entry_data message entry = UI.column 
-  [ UI.spacing 5
-  , UI.alignTop
-  , UI.width (px 800)
-  , UI.clipY
-  , UI.height (px 173)
-  , Events.onClick <| message entry
-  ]
-  [ title_row entry
-  , author_dates_row entry
-  , view_tags_wrapped 6 entry
-  , view_description entry
-  ]
+view_entry_data message entry = 
+  let
+    width = 800
+  in
+    UI.column 
+    [ UI.spacing 5
+    , UI.alignTop
+    , UI.width (px width)
+    , UI.clipY
+    , UI.height (px 173)
+    , Events.onClick <| message entry
+    ]
+    [ title_row entry
+    , author_dates_row entry
+    , view_tags_wrapped [ UI.width <| px <| width - 3 ] entry
+    , view_description entry
+    ]
 
 view : (Entry -> msg) -> Entry -> UI.Element msg
 view message entry = UI.row 
@@ -208,7 +208,7 @@ view_full entry = UI.column
   [ title_row_full entry
   , author_dates_row entry
   , UI.el [ UI.centerX, UI.paddingXY 0 20 ] <| view_image entry
-  , UI.el [ UI.centerX ] <| view_tags_wrapped 4 entry
+  , UI.el [ UI.centerX ] <| view_tags_wrapped [] entry
   -- Separated in two elements because if padding is in the same element as scrollbar, the padding pixels are considered
   -- as part of the element for the clipping and so the content leaks into the padding when scrolling.
   , UI.el [ UI.paddingEach { left = 20, top = 20, bottom = 20, right = 0 } ] 
