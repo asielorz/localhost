@@ -1,5 +1,6 @@
 use crate::date;
 use percent_encoding::percent_decode_str;
+use std::fmt::Write;
 
 pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)> {
     let mut result = String::new();
@@ -32,14 +33,14 @@ pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)
                         params.push(String::from(key_value[1]));
                     }
                     "type" => {
-                        write!(
+                        _ = write!(
                             &mut result,
                             "entry_type = {}",
                             parse_type_query_argument(key_value[1])?
-                        )
+                        );
                     }
                     "works_mentioned" => {
-                        for s in key_value[1].split("|") {
+                        for s in key_value[1].split('|') {
                             result += "works_mentioned LIKE ? AND ";
                             params.push(sql_arg_list_contains(s));
                         }
@@ -49,7 +50,7 @@ pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)
                         }
                     }
                     "themes" => {
-                        for s in key_value[1].split("|") {
+                        for s in key_value[1].split('|') {
                             result += "themes LIKE ? AND ";
                             params.push(sql_arg_list_contains(s));
                         }
@@ -59,7 +60,7 @@ pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)
                         }
                     }
                     "tags" => {
-                        for s in key_value[1].split("|") {
+                        for s in key_value[1].split('|') {
                             result += "tags LIKE ? AND ";
                             params.push(sql_arg_list_contains(s));
                         }
@@ -287,7 +288,7 @@ mod tests {
         match url_to_sql_query(url_params) {
             Some((query, params, offset)) => {
                 assert_eq!(query, "exceptional = TRUE");
-                assert_eq!(params.is_empty(), true);
+                assert!(params.is_empty());
                 assert_eq!(offset, 0);
             }
             None => unreachable!(),
@@ -300,7 +301,7 @@ mod tests {
         match url_to_sql_query(url_params) {
             Some((query, params, offset)) => {
                 assert_eq!(query, "exceptional = FALSE");
-                assert_eq!(params.is_empty(), true);
+                assert!(params.is_empty());
                 assert_eq!(offset, 0);
             }
             None => unreachable!(),
@@ -352,7 +353,7 @@ mod tests {
             match url_to_sql_query(url_params) {
                 Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 0");
-                    assert_eq!(params.is_empty(), true);
+                    assert!(params.is_empty());
                     assert_eq!(offset, 0);
                 }
                 None => unreachable!(),
@@ -363,7 +364,7 @@ mod tests {
             match url_to_sql_query(url_params) {
                 Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 1");
-                    assert_eq!(params.is_empty(), true);
+                    assert!(params.is_empty());
                     assert_eq!(offset, 0);
                 }
                 None => unreachable!(),
@@ -374,7 +375,7 @@ mod tests {
             match url_to_sql_query(url_params) {
                 Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 2");
-                    assert_eq!(params.is_empty(), true);
+                    assert!(params.is_empty());
                     assert_eq!(offset, 0);
                 }
                 None => unreachable!(),
@@ -385,7 +386,7 @@ mod tests {
             match url_to_sql_query(url_params) {
                 Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 3");
-                    assert_eq!(params.is_empty(), true);
+                    assert!(params.is_empty());
                     assert_eq!(offset, 0);
                 }
                 None => unreachable!(),
@@ -396,7 +397,7 @@ mod tests {
             match url_to_sql_query(url_params) {
                 Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 4");
-                    assert_eq!(params.is_empty(), true);
+                    assert!(params.is_empty());
                     assert_eq!(offset, 0);
                 }
                 None => unreachable!(),
@@ -410,7 +411,7 @@ mod tests {
         match url_to_sql_query(url_params) {
             Some((query, params, offset)) => {
                 assert_eq!(query, "");
-                assert_eq!(params.is_empty(), true);
+                assert!(params.is_empty());
                 assert_eq!(offset, 10);
             }
             None => unreachable!(),
