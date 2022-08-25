@@ -1,16 +1,14 @@
 use crate::date;
 use percent_encoding::percent_decode_str;
 
-pub fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>, usize)>
-{
+pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)> {
     let mut result = String::new();
-    let mut params : Vec<String> = Vec::new();
-    let mut offset : usize = 0;
+    let mut params: Vec<String> = Vec::new();
+    let mut offset: usize = 0;
 
     if let Ok(decoded_query_text) = percent_decode_str(query_text).decode_utf8() {
-        for query_argument in decoded_query_text.split("&")
-        {
-            let key_value : Vec<_> = query_argument.split("=").collect();
+        for query_argument in decoded_query_text.split('&') {
+            let key_value: Vec<_> = query_argument.split('=').collect();
             if key_value.len() == 2 {
                 match key_value[0] {
                     "link" => {
@@ -34,11 +32,15 @@ pub fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>, usize
                         params.push(String::from(key_value[1]));
                     }
                     "type" => {
-                        result += &format!("entry_type = {}", parse_type_query_argument(key_value[1])?);
+                        write!(
+                            &mut result,
+                            "entry_type = {}",
+                            parse_type_query_argument(key_value[1])?
+                        )
                     }
                     "works_mentioned" => {
                         for s in key_value[1].split("|") {
-                            result += "works_mentioned LIKE ? AND "; 
+                            result += "works_mentioned LIKE ? AND ";
                             params.push(sql_arg_list_contains(s));
                         }
                         // Remove last " AND "
@@ -84,18 +86,24 @@ pub fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>, usize
                     }
                     "exceptional" => {
                         result += "exceptional = ";
-                        result += if key_value[1] == "true" { "TRUE" } else { "FALSE" }; 
+                        result += if key_value[1] == "true" {
+                            "TRUE"
+                        } else {
+                            "FALSE"
+                        };
                     }
                     "offset" => {
                         offset = key_value[1].parse::<usize>().ok()?;
                     }
-                    _ => { return None; }
+                    _ => {
+                        return None;
+                    }
                 }
             }
 
             result += " AND ";
         }
-    } else { 
+    } else {
         return None;
     }
 
@@ -104,35 +112,31 @@ pub fn url_to_sql_query(query_text : &str) -> Option<(String, Vec<String>, usize
         result.pop();
     }
 
-    return Some((result, params, offset));
+    Some((result, params, offset))
 }
 
-fn sql_arg_string_contains(string : &str) -> String
-{
-    return String::from("%") + string + "%";
+fn sql_arg_string_contains(string: &str) -> String {
+    String::from("%") + string + "%"
 }
 
-fn sql_arg_list_contains(string : &str) -> String
-{
-    return String::from("%|") + string + "|%";
+fn sql_arg_list_contains(string: &str) -> String {
+    String::from("%|") + string + "|%"
 }
 
 // Returns type index
-fn parse_type_query_argument(argument : &str) -> Option<i32>
-{
+fn parse_type_query_argument(argument: &str) -> Option<i32> {
     match argument {
-        "article" => Some(0),  
-        "paper"   => Some(1),    
-        "book"    => Some(2),     
-        "video"   => Some(3),    
-        "audio"   => Some(4),
-        _         => None
+        "article" => Some(0),
+        "paper" => Some(1),
+        "book" => Some(2),
+        "video" => Some(3),
+        "audio" => Some(4),
+        _ => None,
     }
 }
 
 #[cfg(test)]
-mod tests 
-{
+mod tests {
     use super::*;
 
     // url_to_sql_query
@@ -141,12 +145,12 @@ mod tests
     fn test_url_to_sql_query_link_checks_for_containment() {
         let url_params = "link=wikipedia";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "link LIKE ?");
                 assert_eq!(params, ["%wikipedia%"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -159,7 +163,7 @@ mod tests
                 assert_eq!(params, ["%Hello%"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -172,7 +176,7 @@ mod tests
                 assert_eq!(params, ["Pauline Kael"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -185,7 +189,7 @@ mod tests
                 assert_eq!(params, ["%compiler%"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -198,7 +202,7 @@ mod tests
                 assert_eq!(params, ["Programming"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -211,7 +215,7 @@ mod tests
                 assert_eq!(params, ["%|Rust|%", "%|Testing|%"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -220,11 +224,14 @@ mod tests
         let url_params = "works_mentioned=Hamlet%7CMacBeth%7CKing%20Lear";
         match url_to_sql_query(url_params) {
             Some((query, params, offset)) => {
-                assert_eq!(query, "works_mentioned LIKE ? AND works_mentioned LIKE ? AND works_mentioned LIKE ?");
+                assert_eq!(
+                    query,
+                    "works_mentioned LIKE ? AND works_mentioned LIKE ? AND works_mentioned LIKE ?"
+                );
                 assert_eq!(params, ["%|Hamlet|%", "%|MacBeth|%", "%|King Lear|%"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -232,12 +239,19 @@ mod tests
     fn test_url_to_sql_query_tags_checks_for_containment_of_each() {
         let url_params = "tags=Soulslike%7CGreat%20soundtrack%7CFemale%20protagonist";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "tags LIKE ? AND tags LIKE ? AND tags LIKE ?");
-                assert_eq!(params, ["%|Soulslike|%", "%|Great soundtrack|%", "%|Female protagonist|%"]);
+                assert_eq!(
+                    params,
+                    [
+                        "%|Soulslike|%",
+                        "%|Great soundtrack|%",
+                        "%|Female protagonist|%"
+                    ]
+                );
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -245,12 +259,12 @@ mod tests
     fn test_url_to_sql_query_date_is_formated_as_yyyy_mm_dd() {
         let url_params = "published_between_from=1967-5-3";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "date_published >= DATE(?)");
                 assert_eq!(params, ["1967-05-03"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -258,12 +272,12 @@ mod tests
     fn test_url_to_sql_query_published_between_until_checks_for_less_equal() {
         let url_params = "published_between_until=1967-11-24";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "date_published <= DATE(?)");
                 assert_eq!(params, ["1967-11-24"]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -271,12 +285,12 @@ mod tests
     fn test_url_to_sql_query_bool_true_is_formated_as_uppercase_true() {
         let url_params = "exceptional=true";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "exceptional = TRUE");
                 assert_eq!(params.is_empty(), true);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -284,12 +298,12 @@ mod tests
     fn test_url_to_sql_query_bool_false_is_formated_as_uppercase_false() {
         let url_params = "exceptional=false";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "exceptional = FALSE");
                 assert_eq!(params.is_empty(), true);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -298,11 +312,23 @@ mod tests
         let url_params = "link=wikipedia&author=Pauline%20Kael&tags=Soulslike%7CGreat%20soundtrack%7CFemale%20protagonist";
         match url_to_sql_query(url_params) {
             Some((query, params, offset)) => {
-                assert_eq!(query, "link LIKE ? AND author = ? AND tags LIKE ? AND tags LIKE ? AND tags LIKE ?");
-                assert_eq!(params, ["%wikipedia%", "Pauline Kael", "%|Soulslike|%", "%|Great soundtrack|%", "%|Female protagonist|%"]);
+                assert_eq!(
+                    query,
+                    "link LIKE ? AND author = ? AND tags LIKE ? AND tags LIKE ? AND tags LIKE ?"
+                );
+                assert_eq!(
+                    params,
+                    [
+                        "%wikipedia%",
+                        "Pauline Kael",
+                        "%|Soulslike|%",
+                        "%|Great soundtrack|%",
+                        "%|Female protagonist|%"
+                    ]
+                );
                 assert_eq!(offset, 0);
-            } 
-            None => unreachable!()
+            }
+            None => unreachable!(),
         }
     }
 
@@ -310,12 +336,12 @@ mod tests
     fn test_url_to_sql_query_quotes_are_escaped() {
         let url_params = "link=%22wikipedia%22";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "link LIKE ?");
                 assert_eq!(params, [r#"%"wikipedia"%"#]);
                 assert_eq!(offset, 0);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -324,56 +350,56 @@ mod tests
         {
             let url_params = "type=article";
             match url_to_sql_query(url_params) {
-                Some((query, params, offset)) => { 
+                Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 0");
                     assert_eq!(params.is_empty(), true);
                     assert_eq!(offset, 0);
                 }
-                None => unreachable!()
+                None => unreachable!(),
             }
         }
         {
             let url_params = "type=paper";
             match url_to_sql_query(url_params) {
-                Some((query, params, offset)) => { 
+                Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 1");
                     assert_eq!(params.is_empty(), true);
                     assert_eq!(offset, 0);
                 }
-                None => unreachable!()
+                None => unreachable!(),
             }
         }
         {
             let url_params = "type=book";
             match url_to_sql_query(url_params) {
-                Some((query, params, offset)) => { 
+                Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 2");
                     assert_eq!(params.is_empty(), true);
                     assert_eq!(offset, 0);
                 }
-                None => unreachable!()
+                None => unreachable!(),
             }
         }
         {
             let url_params = "type=video";
             match url_to_sql_query(url_params) {
-                Some((query, params, offset)) => { 
+                Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 3");
                     assert_eq!(params.is_empty(), true);
                     assert_eq!(offset, 0);
                 }
-                None => unreachable!()
+                None => unreachable!(),
             }
         }
         {
             let url_params = "type=audio";
             match url_to_sql_query(url_params) {
-                Some((query, params, offset)) => { 
+                Some((query, params, offset)) => {
                     assert_eq!(query, "entry_type = 4");
                     assert_eq!(params.is_empty(), true);
                     assert_eq!(offset, 0);
                 }
-                None => unreachable!()
+                None => unreachable!(),
             }
         }
     }
@@ -382,12 +408,12 @@ mod tests
     fn test_url_to_sql_query_offset() {
         let url_params = "offset=10";
         match url_to_sql_query(url_params) {
-            Some((query, params, offset)) => { 
+            Some((query, params, offset)) => {
                 assert_eq!(query, "");
                 assert_eq!(params.is_empty(), true);
                 assert_eq!(offset, 10);
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 
@@ -396,7 +422,7 @@ mod tests
         let url_params = "type=snafucated";
         match url_to_sql_query(url_params) {
             Some(_) => unreachable!(),
-            None => () 
+            None => (),
         }
     }
 }

@@ -16,26 +16,26 @@ use std::fs;
 pub fn options() -> Result<Response<Body>, hyper::Error>
 {
     println!("Options!");
-    return Response::builder()
+    Response::builder()
         .status(StatusCode::NO_CONTENT)
         .header("Allow", "OPTIONS, GET, PUT, POST, DELETE")
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Headers", "*")
         .header("Access-Control-Allow-Methods", "OPTIONS, GET, PUT, POST, DELETE")
         .body(Body::from(""))
-        .or_else(|_| internal_server_error_response());
+        .or_else(|_| internal_server_error_response())
 }
 
 fn internal_server_error_response() -> Result<Response<Body>, hyper::Error>
 {
     println!("500 Internal server error");
-    return Ok(Response::builder()
+    Ok(Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Headers", "*")
         .body(Body::from(""))
         .unwrap()
-    );
+    )
 }
 
 pub fn not_found_404_response() -> Result<Response<Body>, hyper::Error>
@@ -64,15 +64,15 @@ fn bad_request_response(error_message : &str) -> Result<Response<Body>, hyper::E
 fn to_json_http_response<T : Serialize>(entries : &T) -> Result<Response<Body>, hyper::Error>
 {
     if let Ok(json) = serde_json::to_string(entries) {
-        return Response::builder()
+        Response::builder()
             .status(StatusCode::OK)
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .header("Content-Type", "application/json")
             .body(Body::from(json))
-            .or_else(|_| internal_server_error_response());
+            .or_else(|_| internal_server_error_response())
     } else {
-        return internal_server_error_response();
+        internal_server_error_response()
     }
 }
 
@@ -97,7 +97,7 @@ pub fn get_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
         }
     };
 
-    return to_json_http_response(&served_entries);
+    to_json_http_response(&served_entries)
 }
 
 pub fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
@@ -115,12 +115,12 @@ pub fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Err
             }
         };
         if served_entries.entries.is_empty() {
-            return not_found_404_response();
+            not_found_404_response()
         } else {
-            return to_json_http_response(&served_entries.entries[0]);
+            to_json_http_response(&served_entries.entries[0])
         }
     } else {
-        return bad_request_response(&format!("Could not convert '{}' to an entry id", path));
+        bad_request_response(&format!("Could not convert '{}' to an entry id", path))
     }
 }
 
@@ -261,10 +261,10 @@ pub fn get_entry_image(req : Request<Body>) -> Result<Response<Body>, hyper::Err
                 .body(Body::from(copy))
                 .or_else(|_| internal_server_error_response())
         } else {
-            return not_found_404_response();
+            not_found_404_response()
         }
     } else {
-        return not_found_404_response();
+        not_found_404_response()
     }
 }
 
@@ -346,7 +346,7 @@ pub async fn put_entry_image(req : Request<Body>) -> Result<Response<Body>, hype
         Err(_) => { return internal_server_error_response(); }
     };
 
-    if let Err(_) = blob.write_at(&normalized_image_bytes, 0) {
+    if blob.write_at(&normalized_image_bytes, 0).is_err() {
         return internal_server_error_response();
     };
 
@@ -434,10 +434,10 @@ pub fn get_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                 .body(Body::from(content_data))
                 .or_else(|_| internal_server_error_response())
         } else {
-            return not_found_404_response();
+            not_found_404_response()
         }
     } else {
-        return not_found_404_response();
+        not_found_404_response()
     }
 }
 
@@ -471,18 +471,18 @@ fn write_entry_backup_to_database(entry_id : i64, body : hyper::body::Bytes, con
 
     // Write the length of the content type string in 1 byte. Content type strings are very short
     // so 1 byte should always be enough.
-    if let Err(_) = blob.write_at(&[content_type.len() as u8], 0) {
+    if blob.write_at(&[content_type.len() as u8], 0).is_err() {
         return internal_server_error_response();
     };
 
     // Write the content type string. This way, when a client requests the backup, we can return it with
     // the correct content type.
-    if let Err(_) = blob.write_at(content_type.as_bytes(), 1) {
+    if blob.write_at(content_type.as_bytes(), 1).is_err() {
         return internal_server_error_response();
     };
 
     // Write the actual backup data.
-    if let Err(_) = blob.write_at(&body, blob_header_length) {
+    if blob.write_at(&body, blob_header_length).is_err() {
         return internal_server_error_response();
     };
 
@@ -528,7 +528,7 @@ pub async fn put_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyp
         }
     }
 
-    return write_entry_backup_to_database(entry_id, whole_body, &content_type)
+    write_entry_backup_to_database(entry_id, whole_body, &content_type)
 }
 
 pub fn delete_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
@@ -563,15 +563,15 @@ pub fn delete_entry_backup(req : Request<Body>) -> Result<Response<Body>, hyper:
 fn strings_as_http_response(strings : &Vec<String>) -> Result<Response<Body>, hyper::Error>
 {
     if let Ok(json) = serde_json::to_string(strings) {
-        return Response::builder()
+        Response::builder()
             .status(StatusCode::OK)
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .header("Content-Type", "application/json")
             .body(Body::from(json))
-            .or_else(|_| internal_server_error_response());
+            .or_else(|_| internal_server_error_response())
     } else {
-        return internal_server_error_response();
+        internal_server_error_response()
     }
 }
 
@@ -653,16 +653,16 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                 let last_insert_row_id = database.last_insert_rowid();
 
                 // Ignore errors when inserting an element that is already present in tables of unique values.
-                _ = run_sql(&database, "INSERT INTO authors (value) VALUES (?)", [&form.author]);
-                _ = run_sql(&database, "INSERT INTO categories (value) VALUES (?)", [&form.category]);
+                _ = run_sql(database, "INSERT INTO authors (value) VALUES (?)", [&form.author]);
+                _ = run_sql(database, "INSERT INTO categories (value) VALUES (?)", [&form.category]);
                 for theme in &form.themes {
-                    _ = run_sql(&database, "INSERT INTO themes (value) VALUES (?)", [theme]);
+                    _ = run_sql(database, "INSERT INTO themes (value) VALUES (?)", [theme]);
                 }
                 for work in &form.works_mentioned {
-                    _ = run_sql(&database, "INSERT INTO works (value) VALUES (?)", [work]);
+                    _ = run_sql(database, "INSERT INTO works (value) VALUES (?)", [work]);
                 }
                 for tag in &form.tags {
-                    _ = run_sql(&database, "INSERT INTO tags (value) VALUES (?)", [tag]);
+                    _ = run_sql(database, "INSERT INTO tags (value) VALUES (?)", [tag]);
                 }
 
                 Response::builder()
@@ -673,7 +673,7 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                     .body(Body::from(format!(r#"{{"id":{},"link":"http://localhost:8080/api/texts/{}"}}"#, last_insert_row_id, last_insert_row_id)))
                     .or_else(|_| internal_server_error_response())
             } else {
-                return internal_server_error_response();
+                internal_server_error_response()
             }
         }
         Err(err) => {
@@ -684,7 +684,7 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
 
 pub fn serve_page(path : &str) -> Result<Response<Body>, hyper::Error>
 {
-    return serve_file(path, "text/html; charset=utf-8", false);
+    serve_file(path, "text/html; charset=utf-8", false)
 }
 
 pub fn serve_file(path : &str, content_type : &str, cache : bool) -> Result<Response<Body>, hyper::Error>
@@ -711,7 +711,7 @@ pub async fn forward_get_request(url : &str) -> Result<Response<Body>, hyper::Er
     response.headers_mut().insert("Access-Control-Allow-Origin", hyper::header::HeaderValue::from_static("*"));
     response.headers_mut().insert("Access-Control-Allow-Headers", hyper::header::HeaderValue::from_static("*"));
 
-    return Ok(response);
+    Ok(response)
 }
 
 pub async fn get_meta_headers_at_url(request_uri : &hyper::Uri) -> Result<Response<Body>, hyper::Error>
@@ -754,15 +754,15 @@ pub async fn get_meta_headers_at_url(request_uri : &hyper::Uri) -> Result<Respon
     let headers = html_meta_headers(&whole_text);
 
     if let Ok(json) = serde_json::to_string(&headers) {
-        return Response::builder()
+        Response::builder()
             .status(StatusCode::OK)
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Headers", "*")
             .header("Content-Type", "application/json")
             .body(Body::from(json))
-            .or_else(|_| internal_server_error_response());
+            .or_else(|_| internal_server_error_response())
     } else {
-        return internal_server_error_response();
+        internal_server_error_response()
     }
 }
 
@@ -794,7 +794,7 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, whe
         total_size = row.get(16)?;
 
         found_entries.push(Entry{
-            id : id,
+            id,
             link : row.get(1)?,
             title : row.get(2)?,
             description : row.get(3)?,
@@ -812,12 +812,12 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, whe
         });
     }
 
-    return Ok(GetTextsResponse{
+    Ok(GetTextsResponse{
         next_offset : offset + found_entries.len(),
         entries : found_entries,
         current_offset : offset,
-        total_size : total_size
-    });
+        total_size
+    })
 }
 
 fn run_sql<Params : rusqlite::Params>(database : &rusqlite::Connection, command : &str, params : Params) -> rusqlite::Result<usize>
@@ -826,5 +826,5 @@ fn run_sql<Params : rusqlite::Params>(database : &rusqlite::Connection, command 
     if let Err(err) = &result {
         println!("SQL error: {}", err);
     }
-    return result;
+    result
 }

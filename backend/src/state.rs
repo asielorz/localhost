@@ -6,14 +6,14 @@ pub struct State {
 
 impl State {
     const fn new() -> State {
-        return State { database: None };
+        State { database: None }
     }
 }
 
 static STATE: Mutex<State> = Mutex::new(State::new());
 
 pub fn global_state() -> &'static Mutex<State> {
-    return &STATE;
+    &STATE
 }
 
 pub fn get_all_strings_of(table: &str) -> rusqlite::Result<Vec<String>> {
@@ -32,5 +32,5 @@ pub fn get_all_strings_of(table: &str) -> rusqlite::Result<Vec<String>> {
         }
     }
 
-    return Ok(entries);
+    Ok(entries)
 }

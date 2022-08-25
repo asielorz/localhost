@@ -1,24 +1,24 @@
-pub fn format_as_sql_array(strings : &[String]) -> String
-{
+pub fn format_as_sql_array(strings: &[String]) -> String {
     if strings.is_empty() {
-        return String::from("");
+        String::from("")
     } else {
-        return String::from("|") + &strings.join("|") + "|";
+        String::from("|") + &strings.join("|") + "|"
     }
 }
 
-pub fn read_from_sql_array(string : &str) -> Vec<String>
-{
+pub fn read_from_sql_array(string: &str) -> Vec<String> {
     if string.is_empty() || string == "||" {
-        return Vec::new();
+        Vec::new()
     } else {
-        return string[1..string.len() - 1].split("|").map(String::from).collect();
+        string[1..string.len() - 1]
+            .split('|')
+            .map(String::from)
+            .collect()
     }
 }
 
 #[cfg(test)]
-mod tests 
-{
+mod tests {
     use super::*;
 
     // format_as_sql_array
@@ -32,14 +32,19 @@ mod tests
 
     #[test]
     fn test_format_as_sql_array_a_single_element_is_surrounded_by_or_bars_and_quotes() {
-        let strings = [ String::from("Iruña") ];
+        let strings = [String::from("Iruña")];
         let as_sql_array = format_as_sql_array(&strings);
         assert_eq!(as_sql_array, "|Iruña|");
     }
 
     #[test]
     fn test_format_as_sql_array_several_elements_are_separated_by_or_bars() {
-        let strings = [ String::from("Iruña"), String::from("Bilbo"), String::from("Gasteiz"), String::from("Donostia") ];
+        let strings = [
+            String::from("Iruña"),
+            String::from("Bilbo"),
+            String::from("Gasteiz"),
+            String::from("Donostia"),
+        ];
         let as_sql_array = format_as_sql_array(&strings);
         assert_eq!(as_sql_array, "|Iruña|Bilbo|Gasteiz|Donostia|");
     }
@@ -49,21 +54,26 @@ mod tests
     #[test]
     fn test_read_from_sql_array_empty_string_is_read_as_empty_array() {
         let strings = read_from_sql_array("");
-        let expected_output : Vec<String> = Vec::new();
+        let expected_output: Vec<String> = Vec::new();
         assert_eq!(strings, expected_output);
     }
 
     #[test]
     fn test_read_from_sql_array_single_element_must_be_surrounded_by_or_bars() {
         let strings = read_from_sql_array("|Iruña|");
-        let expected_output = [ String::from("Iruña") ];
+        let expected_output = [String::from("Iruña")];
         assert_eq!(strings, expected_output);
     }
 
     #[test]
     fn test_read_from_sql_array_several_elements_must_be_separated_by_or_bars() {
         let strings = read_from_sql_array("|Iruña|Bilbo|Gasteiz|Donostia|");
-        let expected_output = [ String::from("Iruña"), String::from("Bilbo"), String::from("Gasteiz"), String::from("Donostia") ];
+        let expected_output = [
+            String::from("Iruña"),
+            String::from("Bilbo"),
+            String::from("Gasteiz"),
+            String::from("Donostia"),
+        ];
         assert_eq!(strings, expected_output);
     }
 }

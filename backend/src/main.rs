@@ -12,12 +12,9 @@ mod url_to_sql_query;
 
 use state::global_state;
 
-use dirs;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server};
-use rusqlite;
 use serde::Deserialize;
-use serde_json;
 use std::convert::Infallible;
 use std::env;
 use std::fs;
