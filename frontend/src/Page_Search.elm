@@ -19,7 +19,6 @@ import Url exposing (Url)
 import Url.Parser exposing (query)
 import Fontawesome exposing (fontawesome_text)
 import Combo
-import Html.Attributes exposing (default)
 
 type ComboId
   = ComboId_Type
