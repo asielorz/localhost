@@ -109,7 +109,7 @@ pub fn read_sql_date(text: &str) -> Option<Date> {
 
     let month = match elements[1].parse::<u32>() {
         Ok(month) => {
-            if month >= 1 && month <= 12 {
+            if (1..=12).contains(&month) {
                 month_from_index(month)
             } else {
                 return None;
@@ -120,7 +120,7 @@ pub fn read_sql_date(text: &str) -> Option<Date> {
 
     let day = match elements[2].parse::<i32>() {
         Ok(day) => {
-            if (1..32).contains(&day) {
+            if (1..=31).contains(&day) {
                 day
             } else {
                 return None;
