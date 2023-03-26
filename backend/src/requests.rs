@@ -784,6 +784,8 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, whe
         format!("SELECT *, count(*) OVER() AS full_count FROM entries WHERE {} LIMIT 10 OFFSET {}", where_query, offset)
     };
 
+    println!("SQL query: {}", sql_query);
+
     let mut statement = database.prepare(&sql_query)?;
     let mut rows = statement.query(sql_params)?;
     let mut total_size : usize = 0;

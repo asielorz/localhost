@@ -95,6 +95,15 @@ pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)
                     }
                     "offset" => {
                         offset = key_value[1].parse::<usize>().ok()?;
+
+                        // We treat the offset in a special way in this function. It is not part of the query string,
+                        // but a special value that is returned as an integer and will be added later to the string.
+                        // However, since the loop adds a " AND " at the end of every iteration, it may happen that
+                        // parsing the offset leaves us with two repeated ands or a trailing and in the query if we
+                        // don't remove one, which would cause a parse error in SQL.
+                        if result.ends_with(" AND ") {
+                            result.truncate(result.len() - " AND ".len());
+                        }
                     }
                     _ => {
                         return None;
@@ -419,11 +428,21 @@ mod tests {
     }
 
     #[test]
+    fn test_url_to_sql_query_offset_and_other_parameter() {
+        let url_params = "type=article&offset=10";
+        match url_to_sql_query(url_params) {
+            Some((query, params, offset)) => {
+                assert_eq!(query, "entry_type = 0");
+                assert!(params.is_empty());
+                assert_eq!(offset, 10);
+            }
+            None => unreachable!(),
+        }
+    }
+
+    #[test]
     fn test_url_to_sql_query_bad_type() {
         let url_params = "type=snafucated";
-        match url_to_sql_query(url_params) {
-            Some(_) => unreachable!(),
-            None => (),
-        }
+        assert!(url_to_sql_query(url_params).is_none());
     }
 }
