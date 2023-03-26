@@ -120,15 +120,11 @@ next_month m =
 parse_date_from_url : String -> Maybe Calendar.Date
 parse_date_from_url parameter = 
   case String.split "-" parameter of
-    (day_str::month_str::year_str::[]) -> case String.toInt day_str of
-      Nothing -> Nothing
-      Just year -> case String.toInt month_str of
-        Nothing -> Nothing
-        Just month -> case String.toInt year_str of
-          Nothing -> Nothing
-          Just day -> if month >= 1 && month <= 12
-            then Calendar.fromRawParts { day = day, month = int_to_month month, year = year }
-            else Nothing
+    (year_str::month_str::day_str::[]) -> case (String.toInt year_str, String.toInt month_str, String.toInt day_str) of
+      (Just year, Just month, Just day) -> if month >= 1 && month <= 12 
+        then Calendar.fromRawParts { day = day, month = int_to_month month, year = year }
+        else Nothing
+      _ -> Nothing
     _ -> Nothing 
 
 -- export date to json in the format expected by the backend
