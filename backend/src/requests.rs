@@ -156,7 +156,7 @@ pub async fn put_single_text(req : Request<Body>) -> Result<Response<Body>, hype
                         [ &form.link
                         , &form.title
                         , &form.description
-                        , &form.author
+                        , &format_as_sql_array(&form.authors)
                         , &form.category 
                         , &format_as_sql_array(&form.themes) 
                         , &format_as_sql_array(&form.works_mentioned) 
@@ -632,7 +632,7 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                         [ &form.link
                         , &form.title
                         , &form.description
-                        , &form.author
+                        , &format_as_sql_array(&form.authors)
                         , &form.category 
                         , &format_as_sql_array(&form.themes) 
                         , &format_as_sql_array(&form.works_mentioned) 
@@ -653,7 +653,9 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                 let last_insert_row_id = database.last_insert_rowid();
 
                 // Ignore errors when inserting an element that is already present in tables of unique values.
-                _ = run_sql(database, "INSERT INTO authors (value) VALUES (?)", [&form.author]);
+                for author in &form.authors {
+                    _ = run_sql(database, "INSERT INTO authors (value) VALUES (?)", [author]);
+                }
                 _ = run_sql(database, "INSERT INTO categories (value) VALUES (?)", [&form.category]);
                 for theme in &form.themes {
                     _ = run_sql(database, "INSERT INTO themes (value) VALUES (?)", [theme]);
@@ -800,7 +802,7 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, whe
             link : row.get(1)?,
             title : row.get(2)?,
             description : row.get(3)?,
-            author : row.get(4)?,
+            authors : read_from_sql_array(&row.get::<_, String>(4)?),
             category : row.get(5)?,
             themes : read_from_sql_array(&row.get::<_, String>(6)?),
             works_mentioned : read_from_sql_array(&row.get::<_, String>(7)?),

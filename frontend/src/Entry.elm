@@ -18,7 +18,7 @@ type alias Entry =
   , link : String
   , title : String
   , description : String
-  , author : String
+  , authors : List String
   , category : String
   , themes : List String
   , works_mentioned : List String
@@ -148,7 +148,7 @@ title_row_full entry = UI.row
 
 author_dates_row : Entry -> UI.Element msg
 author_dates_row entry = UI.el [ Font.size 15 ] <| UI.text <| 
-  entry.author ++ " · " ++ (DateUtils.date_to_string entry.date_published) ++ " · " ++ (DateUtils.date_to_string entry.date_saved)
+  (String.join ", " entry.authors) ++ " · " ++ (DateUtils.date_to_string entry.date_published) ++ " · " ++ (DateUtils.date_to_string entry.date_saved)
 
 view_tags_wrapped : List (UI.Attribute msg) -> Entry -> UI.Element msg
 view_tags_wrapped attributes entry = UI.wrappedRow 
@@ -225,7 +225,7 @@ from_json =
       (Json.field "link" Json.string) 
       (Json.field "title" Json.string) 
       (Json.field "description" Json.string) 
-      (Json.field "author" Json.string) 
+      (Json.field "authors" (Json.list Json.string)) 
       (Json.field "category" Json.string) 
       (Json.field "themes" (Json.list Json.string)) 
       (Json.field "works_mentioned" (Json.list Json.string))

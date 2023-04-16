@@ -131,8 +131,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     connection.execute(
         "
         CREATE TABLE IF NOT EXISTS entries (
-            entry_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, 
-            link TEXT NOT NULL COLLATE NOCASE, 
+            entry_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            link TEXT NOT NULL COLLATE NOCASE,
             title TEXT NOT NULL COLLATE NOCASE,
             description TEXT NOT NULL COLLATE NOCASE,
             author TEXT NOT NULL,

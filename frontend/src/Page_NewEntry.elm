@@ -43,7 +43,7 @@ edit id =
       { link = ""
       , title = ""
       , description = ""
-      , author = ""
+      , authors = [""]
       , category = ""
       , themes = []
       , works_mentioned = []
@@ -77,7 +77,7 @@ type Backup
 type ComboId 
   = ComboId_Type 
   | ComboId_Backup 
-  | ComboId_Author
+  | ComboId_Author Int
   | ComboId_Category
   | ComboId_WorkMentioned Int
   | ComboId_Theme Int
@@ -109,7 +109,7 @@ type alias Model =
   , backup : Backup
   , image : EntryImage
   , description : String
-  , author : String
+  , authors : List String
   , category : String
   , themes : List String
   , works_mentioned : List String
@@ -140,7 +140,7 @@ default_model =
   , backup = NoBackup
   , image = Image_None
   , description = ""
-  , author = ""
+  , authors = [""]
   , category = ""
   , themes = []
   , works_mentioned = []
@@ -176,7 +176,8 @@ type Msg
   -- UI
   | Msg_LinkChanged String
   | Msg_TitleChanged String
-  | Msg_AuthorChanged String
+  --| Msg_AuthorsChanged (List String)
+  | Msg_AuthorsChanged (ListWidget.Msg String)
   | Msg_DescriptionChanged String
   | Msg_CategoryChanged String
   | Msg_TypeCombo (Combo.Msg EntryType)
@@ -288,8 +289,9 @@ update msg model = case msg of
   Msg_TitleChanged new_title ->
     ({ model | title = new_title }, Cmd.none)
 
-  Msg_AuthorChanged new_author ->
-    ({ model | author = new_author }, Cmd.none)
+  Msg_AuthorsChanged authors_changed_msg ->
+    --({ model | authors = new_authors }, Cmd.none)
+    ({ model | authors = ListWidget.update authors_changed_msg model.authors }, Cmd.none)
 
   Msg_DescriptionChanged new_description ->
     ({ model | description = new_description }, Cmd.none)
@@ -520,7 +522,7 @@ update msg model = case msg of
                 { link = entry.link
                 , title = entry.title
                 , description = entry.description
-                , author = entry.author
+                , authors = entry.authors
                 , category = entry.category
                 , themes = entry.themes
                 , works_mentioned = entry.works_mentioned
@@ -535,7 +537,7 @@ update msg model = case msg of
             , link = entry.link
             , title = entry.title
             , description = entry.description
-            , author = entry.author
+            , authors = entry.authors
             , category = entry.category
             , themes = entry.themes
             , works_mentioned = entry.works_mentioned
@@ -571,7 +573,7 @@ update msg model = case msg of
         in
           ( { model 
             | title = Maybe.withDefault model.title meta_info.title
-            , author = Maybe.withDefault model.author meta_info.author
+            , authors = meta_info.author |> Maybe.map List.singleton |> Maybe.withDefault model.authors
             , date_published = Maybe.withDefault model.date_published (Maybe.map (\d -> DatePicker.set_date (Just d) model.date_published) meta_info.date_published)
             , image = Maybe.withDefault model.image <| Maybe.map Image_Url meta_info.image
             }
@@ -595,7 +597,7 @@ make_new_entry_form model =
       { link = model.link
       , title = model.title
       , description = model.description
-      , author = model.author
+      , authors = model.authors
       , category = model.category
       , themes = model.themes
       , works_mentioned = model.works_mentioned
@@ -766,6 +768,49 @@ row name content = UI.row [ UI.paddingEach { sides | top = 30 } ]
   [ UI.el [ Font.color (rgb 1 1 1), UI.alignLeft, UI.alignTop, UI.width (px 300), UI.paddingEach { top = 15, bottom = 0, left = 0, right = 0 } ] (UI.text name)
   , UI.el [ UI.width (px 500) ] content
   ]
+
+view_authors : List String -> List String -> Maybe ComboId -> UI.Element Msg
+view_authors authors all_authors currently_open_combo = 
+  case authors of
+    first::rest -> UI.column
+      [ UI.width UI.fill
+      , UI.spacing 10
+      ]
+      (
+        ( UI.row
+          [ UI.width UI.fill
+          , UI.spacing 5 
+          ]
+          [ input_box_with_suggestions [] 
+            { text = first
+            , suggestions = all_authors
+            , message = Msg_AuthorsChanged << ListWidget.Msg_Edit 0
+            , id = ComboId_Author 0
+            , currently_open_id = currently_open_combo
+            , change_open = Msg_OpenComboChanged 
+            }
+            , ListWidget.add_button Config.widget_common_attributes "" Msg_AuthorsChanged
+          ]
+        )
+        ::
+        ( rest |> Utils.enumerate |> List.map (\(index, author) -> UI.row
+          [ UI.width UI.fill
+          , UI.spacing 5 
+          ]
+          [ input_box_with_suggestions [] 
+            { text = author
+            , suggestions = all_authors
+            , message = Msg_AuthorsChanged << ListWidget.Msg_Edit (index + 1)
+            , id = ComboId_Author (index + 1)
+            , currently_open_id = currently_open_combo
+            , change_open = Msg_OpenComboChanged 
+            }
+            , ListWidget.remove_button Config.widget_common_attributes (index + 1) Msg_AuthorsChanged
+          ])
+        )
+      )
+    _ -> UI.text "There are no authors. The page is in a very bad state. Panic!!!"
+
 
 entry_type_display_string : EntryType -> String
 entry_type_display_string entry_type = case entry_type of
@@ -939,7 +984,7 @@ view_main_column form = UI.column
   ]
   [ row "Link"                  <| link_row form
   , row "Título"                <| input_box [] form.title Msg_TitleChanged
-  , row "Autor"                 <| input_box_with_suggestions [] { text = form.author, suggestions = form.all_authors, message = Msg_AuthorChanged, id = ComboId_Author, currently_open_id = form.currently_open_combo, change_open = Msg_OpenComboChanged }
+  , row "Autor"                 <| view_authors form.authors form.all_authors form.currently_open_combo
   , row "Fecha de publicación"  <| DatePicker.view Config.widget_common_attributes Msg_DatePublishedChanged form.date_published
   , row "Tipo"                  <| type_combo_button form.entry_type form.type_metadata_input_string form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.link form.currently_open_combo
@@ -1072,7 +1117,7 @@ dialog state = case state of
       , UI.spacing 20
       , UI.width (px 600)
       ]
-      <| UI.column [ UI.width UI.fill ] [ UI.paragraph [ UI.centerX ] [ UI.text args.message ] ]
+      <| UI.column [ UI.width UI.fill, UI.centerX, UI.spacing 5 ] (args.message |> String.split "\n" |> List.map UI.text)
 
   State_InputUrl args ->
     UI.el

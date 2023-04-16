@@ -11,7 +11,7 @@ type alias Form =
   { link : String
   , title : String
   , description : String
-  , author : String
+  , authors : List String
   , category : String
   , themes : List String
   , works_mentioned : List String
@@ -26,7 +26,7 @@ to_json form = Json.object
   [ ("link", Json.string form.link)
   , ("title", Json.string form.title)
   , ("description", Json.string form.description)
-  , ("author", Json.string form.author)
+  , ("authors", Json.list Json.string form.authors)
   , ("category", Json.string form.category)
   , ("themes", Json.list Json.string form.themes)
   , ("works_mentioned", Json.list Json.string form.works_mentioned)
@@ -42,14 +42,15 @@ make_error conditions =
   let errors = List.filterMap (\(cond, msg) -> if cond then Just msg else Nothing) conditions in
   if List.isEmpty errors
     then Nothing
-    else Just <| List.foldr (++) "" (List.intersperse "\n" errors)
+    else Just <| String.join "\n" errors
 
 validate : Form -> Maybe String
 validate form = make_error
   [ (not <| Utils.is_url form.link, "- La URL no es válida")
   , (String.isEmpty form.title, "- El título está vacío")
   , (String.isEmpty form.description, "- La descripción está vacía")
-  , (String.isEmpty form.author, "- El autor está vacío")
+  , (List.isEmpty form.authors, "- No hay ningún autor")
+  , (List.any String.isEmpty form.authors, "- El autor está vacío")
   , (String.isEmpty form.category, "- La categoría está vacía")
   , (List.any String.isEmpty form.themes, "- Uno de los temas está vacío")
   , (Utils.has_duplicates form.themes, "- Uno de los temas está dos veces en la lista")

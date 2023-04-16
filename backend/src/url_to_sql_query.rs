@@ -21,8 +21,8 @@ pub fn url_to_sql_query(query_text: &str) -> Option<(String, Vec<String>, usize)
                         params.push(sql_arg_string_contains(key_value[1]));
                     }
                     "author" => {
-                        result += "author = ?";
-                        params.push(String::from(key_value[1]));
+                        result += "author LIKE ?";
+                        params.push(sql_arg_list_contains(key_value[1]));
                     }
                     "description" => {
                         result += "description LIKE ?";
@@ -182,8 +182,8 @@ mod tests {
         let url_params = "author=Pauline%20Kael";
         match url_to_sql_query(url_params) {
             Some((query, params, offset)) => {
-                assert_eq!(query, "author = ?");
-                assert_eq!(params, ["Pauline Kael"]);
+                assert_eq!(query, "author LIKE ?");
+                assert_eq!(params, ["%|Pauline Kael|%"]);
                 assert_eq!(offset, 0);
             }
             None => unreachable!(),
@@ -324,13 +324,13 @@ mod tests {
             Some((query, params, offset)) => {
                 assert_eq!(
                     query,
-                    "link LIKE ? AND author = ? AND tags LIKE ? AND tags LIKE ? AND tags LIKE ?"
+                    "link LIKE ? AND author LIKE ? AND tags LIKE ? AND tags LIKE ? AND tags LIKE ?"
                 );
                 assert_eq!(
                     params,
                     [
                         "%wikipedia%",
-                        "Pauline Kael",
+                        "%|Pauline Kael|%",
                         "%|Soulslike|%",
                         "%|Great soundtrack|%",
                         "%|Female protagonist|%"

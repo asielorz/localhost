@@ -2,8 +2,9 @@ use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ord, Ordering};
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
 pub enum Month {
+    #[default]
     January,
     February,
     March,
@@ -16,12 +17,6 @@ pub enum Month {
     October,
     November,
     December,
-}
-
-impl Default for Month {
-    fn default() -> Self {
-        Month::January
-    }
 }
 
 pub fn month_from_index(index: u32) -> Month {

@@ -11,7 +11,7 @@ valid_entry_json = """
 , "link" : "http://www.wikipedia.org/"
 , "title" : "Test title"
 , "description" : "This is a test"
-, "author" : "Foobar the second"
+, "authors" : ["Foobar the second"]
 , "category" : "Tests"
 , "themes" : ["Bullshit"]
 , "works_mentioned" : ["Hamlet","King Lear","MacBeth"]

@@ -1,4 +1,4 @@
-module ListWidget exposing (Msg(..), IntermediateMsg(..), update, view)
+module ListWidget exposing (Msg(..), IntermediateMsg(..), update, view, add_button, remove_button)
 
 import Element as UI
 import Element.Input as Input
