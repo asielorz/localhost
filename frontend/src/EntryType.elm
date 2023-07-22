@@ -4,7 +4,7 @@ import Json.Encode
 import Json.Decode
 
 type EntryType 
-  = Type_Article { pages : Int }
+  = Type_Article { words : Int }
   | Type_Paper { pages : Int }
   | Type_Book { pages : Int }
   | Type_Video { length_in_seconds : Int }
@@ -21,7 +21,7 @@ fontawesome_icon entry_type = case entry_type of
 to_json : EntryType -> Json.Encode.Value
 to_json entry_type = Json.Encode.object
   [ case entry_type of
-    Type_Article t -> ("Article", Json.Encode.object [ ("pages", Json.Encode.int t.pages) ])
+    Type_Article t -> ("Article", Json.Encode.object [ ("words", Json.Encode.int t.words) ])
     Type_Paper t -> ("Paper", Json.Encode.object [ ("pages", Json.Encode.int t.pages) ])
     Type_Book t -> ("Book", Json.Encode.object [ ("pages", Json.Encode.int t.pages) ])
     Type_Video t -> ("Video", Json.Encode.object [ ("length_in_seconds", Json.Encode.int t.length_in_seconds) ])
@@ -31,11 +31,12 @@ to_json entry_type = Json.Encode.object
 from_json : Json.Decode.Decoder EntryType
 from_json = 
   let
+    words x = { words = x }
     pages x = { pages = x }
     length_in_seconds x = { length_in_seconds = x }
   in
     Json.Decode.oneOf
-      [ Json.Decode.field "Article" <| Json.Decode.map (Type_Article << pages) <| Json.Decode.field "pages" Json.Decode.int
+      [ Json.Decode.field "Article" <| Json.Decode.map (Type_Article << words) <| Json.Decode.field "words" Json.Decode.int
       , Json.Decode.field "Paper" <| Json.Decode.map (Type_Paper << pages) <| Json.Decode.field "pages" Json.Decode.int
       , Json.Decode.field "Book" <| Json.Decode.map (Type_Book << pages) <| Json.Decode.field "pages" Json.Decode.int
       , Json.Decode.field "Video" <| Json.Decode.map (Type_Video << length_in_seconds) <| Json.Decode.field "length_in_seconds" Json.Decode.int

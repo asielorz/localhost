@@ -50,7 +50,7 @@ edit id =
       , tags = []
       , date_published = Nothing
       , exceptional = False
-      , entry_type = Type_Article { pages = 0 }
+      , entry_type = Type_Article { words = 0 }
       }
   in
     ( { default_model 
@@ -146,7 +146,7 @@ default_model =
   , works_mentioned = []
   , tags = []
   , date_published = DatePicker.make_empty { display_month = Time.Jun, display_year = 2022 }
-  , entry_type = Type_Article { pages = 0 }
+  , entry_type = Type_Article { words = 0 }
   , exceptional = False
   , currently_open_combo = Nothing
   , app_state = State_Editing
@@ -335,7 +335,7 @@ update msg model = case msg of
         |> String.left 8
 
       (fixed, updated_type) = case model.entry_type of
-        Type_Article _ -> (only_digits, Type_Article { pages = string_to_int only_digits })
+        Type_Article _ -> (only_digits, Type_Article { words = string_to_int only_digits })
         Type_Paper _ -> (only_digits, Type_Paper { pages = string_to_int only_digits })
         Type_Book _ -> (only_digits, Type_Book { pages = string_to_int only_digits })
         Type_Video _ -> (duration, Type_Video { length_in_seconds = parse_duration duration })
@@ -822,7 +822,7 @@ entry_type_display_string entry_type = case entry_type of
 
 entry_type_edit_metadata_string : EntryType -> String
 entry_type_edit_metadata_string entry_type = case entry_type of
-  Type_Article x -> String.fromInt x.pages
+  Type_Article x -> String.fromInt x.words
   Type_Paper x -> String.fromInt x.pages
   Type_Book x -> String.fromInt x.pages
   Type_Video x -> Utils.format_seconds_as_hours_minutes_seconds x.length_in_seconds
@@ -843,7 +843,7 @@ type_hint_text : EntryType -> UI.Element msg
 type_hint_text entry_type = 
   let
     text = case entry_type of
-      Type_Article _ -> "páginas"
+      Type_Article _ -> "palabras"
       Type_Paper _ -> "páginas"
       Type_Book _ -> "páginas"
       Type_Video _ -> "segundos"
@@ -869,7 +869,7 @@ type_combo_button entry_type input_string currently_open_combo = UI.row [ UI.spa
     { combo_state = entry_type
     , id = ComboId_Type
     , alternatives = 
-      [ Type_Article { pages = 0 }
+      [ Type_Article { words = 0 }
       , Type_Paper { pages = 0 }
       , Type_Book { pages = 0 }
       , Type_Video { length_in_seconds = 0 }

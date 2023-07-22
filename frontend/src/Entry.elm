@@ -56,7 +56,7 @@ view_extra_info info label = UI.row
 
 entry_type_metadata_text : EntryType -> String
 entry_type_metadata_text entry_type = case entry_type of
-  Type_Article t -> String.fromInt t.pages ++ " páginas"
+  Type_Article t -> String.fromInt t.words ++ " palabras"
   Type_Paper t -> String.fromInt t.pages ++ " páginas"
   Type_Book t -> String.fromInt t.pages ++ " páginas"
   Type_Video t -> Utils.format_seconds_as_hours_minutes_seconds t.length_in_seconds
