@@ -54,9 +54,33 @@ view_extra_info info label = UI.row
   , UI.text label
   ]
 
+
+average_words_read_per_minute : number
+average_words_read_per_minute = 200
+
+
+estimated_reading_time_minutes : Int -> Int
+estimated_reading_time_minutes words = round <| (toFloat words) / average_words_read_per_minute
+
+
+format_minutes : Int -> String
+format_minutes m =
+  if m >= 60
+    then 
+      let
+        minutes = m |> modBy 60
+        hours = m // 60
+      in
+        if minutes == 0
+          then String.fromInt hours ++ "h"
+          else String.fromInt hours ++ "h " ++ String.fromInt minutes ++ " min"
+
+    else String.fromInt m ++ " min"
+
+
 entry_type_metadata_text : EntryType -> String
 entry_type_metadata_text entry_type = case entry_type of
-  Type_Article t -> String.fromInt t.words ++ " palabras"
+  Type_Article t -> String.fromInt t.words ++ " palabras (~" ++ format_minutes (estimated_reading_time_minutes t.words) ++ ")"
   Type_Paper t -> String.fromInt t.pages ++ " páginas"
   Type_Book t -> String.fromInt t.pages ++ " páginas"
   Type_Video t -> Utils.format_seconds_as_hours_minutes_seconds t.length_in_seconds
