@@ -19,6 +19,8 @@ import Url exposing (Url)
 import Url.Parser exposing (query)
 import Fontawesome exposing (fontawesome_text)
 import Combo
+import Dict exposing (Dict)
+import Metadata exposing (metadata_map_from_json)
 
 type ComboId
   = ComboId_Type
@@ -53,11 +55,11 @@ type alias Model =
   , dialog_entry : Maybe Entry
 
   -- cached
-  , all_authors : List String
   , all_categories : List String
-  , all_works : List String
-  , all_themes : List String
-  , all_tags : List String
+  , all_authors : Dict String (List String)
+  , all_works : Dict String (List String)
+  , all_themes : Dict String (List String)
+  , all_tags : Dict String (List String)
   }
 
 type Msg
@@ -84,10 +86,10 @@ type Msg
   -- Http from server
   | Msg_ReceivedSearchResults (Result Http.Error SearchResponse)
   | Msg_ReceivedCategories (Result Http.Error (List String))
-  | Msg_ReceivedAuthors (Result Http.Error (List String))
-  | Msg_ReceivedThemes (Result Http.Error (List String))
-  | Msg_ReceivedWorks (Result Http.Error (List String))
-  | Msg_ReceivedTags (Result Http.Error (List String))
+  | Msg_ReceivedAuthors (Result Http.Error (Dict String (List String)))
+  | Msg_ReceivedThemes (Result Http.Error (Dict String (List String)))
+  | Msg_ReceivedWorks (Result Http.Error (Dict String (List String)))
+  | Msg_ReceivedTags (Result Http.Error (Dict String (List String)))
 
   -- Manage select entry dialog
   | Msg_EntrySelected Entry
@@ -121,19 +123,19 @@ init =
 
       , dialog_entry = Nothing
 
-      , all_authors = []
       , all_categories = []
-      , all_works = []
-      , all_themes = []
-      , all_tags = []
+      , all_authors = Dict.empty
+      , all_works = Dict.empty
+      , all_themes = Dict.empty
+      , all_tags = Dict.empty
       }
 
     initial_commands = 
-      [ Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+      [ Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors metadata_map_from_json }
+      , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
+      , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
+      , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
       ]
   in
     (default_model, Cmd.batch initial_commands)
@@ -262,22 +264,22 @@ update msg model = case msg of
 
   Msg_ReceivedAuthors result ->
     case result of
-      Ok received_authors -> ({ model | all_authors = List.sort received_authors }, Cmd.none)
+      Ok received_authors -> ({ model | all_authors = received_authors }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedThemes result ->
     case result of
-      Ok received_themes -> ({ model | all_themes = List.sort received_themes }, Cmd.none)
+      Ok received_themes -> ({ model | all_themes = received_themes }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedWorks result ->
     case result of
-      Ok received_works -> ({ model | all_works = List.sort received_works }, Cmd.none)
+      Ok received_works -> ({ model | all_works = received_works }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedTags result ->
     case result of
-      Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
+      Ok received_tags -> ({ model | all_tags = received_tags }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_EntrySelected entry ->
@@ -383,16 +385,6 @@ view_search_column attributes model = UI.column
   ) 
   [ with_label "Link"       <| UI.row [ UI.width UI.fill, UI.spacing 10 ] [ input_box [] model.link Msg_LinkChanged, exceptional_toggle_button model.exceptional ]
   , with_label "Título"       <| input_box [] model.title Msg_TitleChanged
-  , with_label "Autor"        <| input_box_with_suggestions [] 
-    { text = model.author
-    , suggestions = model.all_authors
-    , message = Msg_AuthorChanged
-    , id = ComboId_Author
-    , currently_open_id = model.currently_open_combo
-    , change_open = Msg_OpenComboChanged
-    }
-  , with_label "Descripción"  <| input_box [] model.description Msg_DescriptionChanged
-  , with_label "Tipo"  <| type_combo model.type_to_search model.currently_open_combo
   , with_label "Categoría"    <| input_box_with_suggestions []
     { text = model.category
     , suggestions = model.all_categories
@@ -401,9 +393,39 @@ view_search_column attributes model = UI.column
     , currently_open_id = model.currently_open_combo
     , change_open = Msg_OpenComboChanged
     }
-  , view_string_list model.works_mentioned model.all_works "Obras mencionadas" ComboId_WorksMentioned model.currently_open_combo Msg_WorksMentioned Msg_OpenComboChanged
-  , view_string_list model.themes model.all_themes "Temas" ComboId_Themes model.currently_open_combo Msg_Themes Msg_OpenComboChanged
-  , view_string_list model.tags model.all_tags "Etiquetas" ComboId_Tags model.currently_open_combo Msg_Tags Msg_OpenComboChanged
+  , with_label "Autor"        <| input_box_with_suggestions [] 
+    { text = model.author
+    , suggestions = model.all_authors |> Dict.get model.category |> Maybe.withDefault []
+    , message = Msg_AuthorChanged
+    , id = ComboId_Author
+    , currently_open_id = model.currently_open_combo
+    , change_open = Msg_OpenComboChanged
+    }
+  , with_label "Descripción"  <| input_box [] model.description Msg_DescriptionChanged
+  , with_label "Tipo"  <| type_combo model.type_to_search model.currently_open_combo
+  , view_string_list 
+    model.works_mentioned 
+    (model.all_works |> Dict.get model.category |> Maybe.withDefault [])
+    "Obras mencionadas" 
+    ComboId_WorksMentioned 
+    model.currently_open_combo 
+    Msg_WorksMentioned 
+    Msg_OpenComboChanged
+  , view_string_list 
+    model.themes 
+    (model.all_themes |> Dict.get model.category |> Maybe.withDefault []) 
+    "Temas" 
+    ComboId_Themes 
+    model.currently_open_combo 
+    Msg_Themes 
+    Msg_OpenComboChanged
+  , view_string_list 
+    model.tags 
+    (model.all_tags |> Dict.get model.category |> Maybe.withDefault []) 
+    "Etiquetas" 
+    ComboId_Tags 
+    model.currently_open_combo 
+    Msg_Tags Msg_OpenComboChanged
   , with_label "Publicado entre" <| UI.row [ UI.width UI.fill, UI.spacing 10 ] 
     [ DatePicker.view Config.widget_common_attributes Msg_DatePublishedFromChanged model.published_between_from
     , DatePicker.view Config.widget_common_attributes Msg_DatePublishedUntilChanged model.published_between_until

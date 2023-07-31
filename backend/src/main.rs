@@ -10,11 +10,10 @@ mod sql_array;
 mod state;
 mod url_to_sql_query;
 
-use state::global_state;
-
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server};
 use serde::Deserialize;
+use state::global_state;
 use std::convert::Infallible;
 use std::env;
 use std::fs;
@@ -129,8 +128,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let connection = rusqlite::Connection::open(config.database_path)?;
 
     connection.execute(
-        "
-        CREATE TABLE IF NOT EXISTS entries (
+        "CREATE TABLE IF NOT EXISTS entries (
             entry_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             link TEXT NOT NULL COLLATE NOCASE,
             title TEXT NOT NULL COLLATE NOCASE,
@@ -147,16 +145,44 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             entry_type_metadata INT NOT NULL,
             image BLOB,
             backup BLOB
-        );
-        ",
+        );",
         [],
     )?;
 
-    connection.execute("CREATE TABLE IF NOT EXISTS authors (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
     connection.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
-    connection.execute("CREATE TABLE IF NOT EXISTS themes (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
-    connection.execute("CREATE TABLE IF NOT EXISTS works (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
-    connection.execute("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, value TEXT UNIQUE NOT NULL);", [])?;
+
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS authors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            value TEXT UNIQUE NOT NULL,
+            category TEXT NOT NULL
+        );",
+        [],
+    )?;
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS themes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            value TEXT UNIQUE NOT NULL,
+            category TEXT NOT NULL
+        );",
+        [],
+    )?;
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS works (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            value TEXT UNIQUE NOT NULL,
+            category TEXT NOT NULL
+        );",
+        [],
+    )?;
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            value TEXT UNIQUE NOT NULL,
+            category TEXT NOT NULL
+        );",
+        [],
+    )?;
 
     global_state().lock().unwrap().database = Some(connection);
 

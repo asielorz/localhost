@@ -32,6 +32,7 @@ import Json.Encode
 import Json.Decode
 import Dict exposing (Dict)
 import ParseMetaTags
+import Metadata exposing (metadata_map_from_json)
 
 init : (Model, Cmd Msg)
 init = (default_model, initial_commands)
@@ -127,10 +128,10 @@ type alias Model =
 
   -- Cached. Received from the server. Used for autocompletion.
   , all_categories : List String
-  , all_authors : List String
-  , all_themes : List String
-  , all_works : List String
-  , all_tags : List String
+  , all_authors : Dict String (List String)
+  , all_themes : Dict String (List String)
+  , all_works : Dict String (List String)
+  , all_tags : Dict String (List String)
   }
 
 default_model : Model
@@ -155,19 +156,19 @@ default_model =
   , edited_entry = Nothing
 
   , all_categories = []
-  , all_authors = []
-  , all_themes = []
-  , all_works = []
-  , all_tags = []
+  , all_authors = Dict.empty
+  , all_themes = Dict.empty
+  , all_works = Dict.empty
+  , all_tags = Dict.empty
   }
 
 initial_commands : Cmd Msg
 initial_commands = Cmd.batch
-  [ Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors (Json.Decode.list Json.Decode.string) }
+  [ Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors metadata_map_from_json }
   , Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
+  , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
+  , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
   ]
 
 type Msg 
@@ -217,10 +218,10 @@ type Msg
   | Msg_ResponseToDeleteArrived (Result Http.Error ())
 
   | Msg_ReceivedCategories (Result Http.Error (List String))
-  | Msg_ReceivedAuthors (Result Http.Error (List String))
-  | Msg_ReceivedThemes (Result Http.Error (List String))
-  | Msg_ReceivedWorks (Result Http.Error (List String))
-  | Msg_ReceivedTags (Result Http.Error (List String))
+  | Msg_ReceivedAuthors (Result Http.Error (Dict String (List String)))
+  | Msg_ReceivedThemes (Result Http.Error (Dict String (List String)))
+  | Msg_ReceivedWorks (Result Http.Error (Dict String (List String)))
+  | Msg_ReceivedTags (Result Http.Error (Dict String (List String)))
   | Msg_ReceivedEntryToEdit (Result Http.Error Entry)
 
   -- Autocomplete
@@ -487,22 +488,22 @@ update msg model = case msg of
 
   Msg_ReceivedAuthors result ->
     case result of
-      Ok received_authors -> ({ model | all_authors = List.sort received_authors }, Cmd.none)
+      Ok received_authors -> ({ model | all_authors = received_authors }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedThemes result ->
     case result of
-      Ok received_themes -> ({ model | all_themes = List.sort received_themes }, Cmd.none)
+      Ok received_themes -> ({ model | all_themes = received_themes }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedWorks result ->
     case result of
-      Ok received_works -> ({ model | all_works = List.sort received_works }, Cmd.none)
+      Ok received_works -> ({ model | all_works = received_works }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedTags result ->
     case result of
-      Ok received_tags -> ({ model | all_tags = List.sort received_tags }, Cmd.none)
+      Ok received_tags -> ({ model | all_tags = received_tags }, Cmd.none)
       Err _ -> (model, Cmd.none)
 
   Msg_ReceivedEntryToEdit result ->
@@ -984,7 +985,7 @@ view_main_column form = UI.column
   ]
   [ row "Link"                  <| link_row form
   , row "Título"                <| input_box [] form.title Msg_TitleChanged
-  , row "Autor"                 <| view_authors form.authors form.all_authors form.currently_open_combo
+  , row "Autor"                 <| view_authors form.authors (form.all_authors |> Dict.get form.category |> Maybe.withDefault []) form.currently_open_combo
   , row "Fecha de publicación"  <| DatePicker.view Config.widget_common_attributes Msg_DatePublishedChanged form.date_published
   , row "Tipo"                  <| type_combo_button form.entry_type form.type_metadata_input_string form.currently_open_combo
   , row "Copia de seguridad"    <| backup_combo_button form.backup form.link form.currently_open_combo
@@ -1086,9 +1087,30 @@ view_side_column form = UI.column
   ]
   [ view_image form.edited_entry form.image
   , view_category form.category form.all_categories form.currently_open_combo
-  , view_string_list form.works_mentioned form.all_works "Obras mencionadas" ComboId_WorkMentioned form.currently_open_combo Msg_WorksMentioned Msg_OpenComboChanged
-  , view_string_list form.themes form.all_themes "Temas" ComboId_Theme form.currently_open_combo Msg_Themes Msg_OpenComboChanged
-  , view_string_list form.tags form.all_tags "Etiquetas" ComboId_Tag form.currently_open_combo Msg_Tags Msg_OpenComboChanged
+  , view_string_list 
+    form.works_mentioned 
+    (form.all_works |> Dict.get form.category |> Maybe.withDefault []) 
+    "Obras mencionadas" 
+    ComboId_WorkMentioned 
+    form.currently_open_combo 
+    Msg_WorksMentioned 
+    Msg_OpenComboChanged
+  , view_string_list 
+    form.themes 
+    (form.all_themes |> Dict.get form.category |> Maybe.withDefault [])
+    "Temas" 
+    ComboId_Theme 
+    form.currently_open_combo 
+    Msg_Themes 
+    Msg_OpenComboChanged
+  , view_string_list 
+    form.tags 
+    (form.all_tags |> Dict.get form.category |> Maybe.withDefault []) 
+    "Etiquetas" 
+    ComboId_Tag 
+    form.currently_open_combo 
+    Msg_Tags 
+    Msg_OpenComboChanged
   ]
 
 view_form : Model -> UI.Element Msg

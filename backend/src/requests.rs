@@ -2,7 +2,7 @@ use crate::http;
 use crate::paths;
 use crate::date;
 use crate::state::*;
-use crate::url_to_sql_query::{url_to_sql_query};
+use crate::url_to_sql_query::url_to_sql_query;
 use crate::sql_array::*;
 use crate::entry_type;
 use crate::forms::*;
@@ -10,7 +10,7 @@ use crate::html_meta::html_meta_headers;
 use crate::images::normalize_image;
 
 use hyper::{Body, Request, Response, StatusCode};
-use serde::{Serialize};
+use serde::Serialize;
 use std::fs;
 
 pub fn options() -> Result<Response<Body>, hyper::Error>
@@ -575,6 +575,21 @@ fn strings_as_http_response(strings : &Vec<String>) -> Result<Response<Body>, hy
     }
 }
 
+fn strings_with_categories_as_http_response(strings : &Vec<StringWithCategory>) -> Result<Response<Body>, hyper::Error>
+{
+    if let Ok(json) = serde_json::to_string(strings) {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Headers", "*")
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .or_else(|_| internal_server_error_response())
+    } else {
+        internal_server_error_response()
+    }
+}
+
 pub fn get_categories() -> Result<Response<Body>, hyper::Error>
 {
     match &get_all_strings_of("categories") {
@@ -585,33 +600,39 @@ pub fn get_categories() -> Result<Response<Body>, hyper::Error>
 
 pub fn get_authors() -> Result<Response<Body>, hyper::Error>
 {
-    match &get_all_strings_of("authors") {
-        Ok(strings) => strings_as_http_response(strings),
+    match &get_all_strings_by_category_of("authors") {
+        Ok(strings) => strings_with_categories_as_http_response(strings),
         Err(_) => internal_server_error_response()
     }
 }
 
 pub fn get_themes() -> Result<Response<Body>, hyper::Error>
 {
-    match &get_all_strings_of("themes") {
-        Ok(strings) => strings_as_http_response(strings),
+    match &get_all_strings_by_category_of("themes") {
+        Ok(strings) => strings_with_categories_as_http_response(strings),
         Err(_) => internal_server_error_response()
     }
 }
 
 pub fn get_works() -> Result<Response<Body>, hyper::Error>
 {
-    match &get_all_strings_of("works") {
-        Ok(strings) => strings_as_http_response(strings),
-        Err(_) => internal_server_error_response()
+    match &get_all_strings_by_category_of("works") {
+        Ok(strings) => strings_with_categories_as_http_response(strings),
+        Err(err) => { 
+            println!("{}", err);
+            internal_server_error_response()
+        }
     }
 }
 
 pub fn get_tags() -> Result<Response<Body>, hyper::Error>
 {
-    match &get_all_strings_of("tags") {
-        Ok(strings) => strings_as_http_response(strings),
-        Err(_) => internal_server_error_response()
+    match &get_all_strings_by_category_of("tags") {
+        Ok(strings) => strings_with_categories_as_http_response(strings),
+        Err(err) => {
+            println!("{}", err);
+            internal_server_error_response()
+        }
     }
 }
 
@@ -653,18 +674,19 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                 let last_insert_row_id = database.last_insert_rowid();
 
                 // Ignore errors when inserting an element that is already present in tables of unique values.
-                for author in &form.authors {
-                    _ = run_sql(database, "INSERT INTO authors (value) VALUES (?)", [author]);
-                }
                 _ = run_sql(database, "INSERT INTO categories (value) VALUES (?)", [&form.category]);
+
+                for author in &form.authors {
+                    _ = run_sql(database, "INSERT INTO authors (value, category) VALUES (?)", [author, &form.category]);
+                }
                 for theme in &form.themes {
-                    _ = run_sql(database, "INSERT INTO themes (value) VALUES (?)", [theme]);
+                    _ = run_sql(database, "INSERT INTO themes (value, category) VALUES (?)", [theme, &form.category]);
                 }
                 for work in &form.works_mentioned {
-                    _ = run_sql(database, "INSERT INTO works (value) VALUES (?)", [work]);
+                    _ = run_sql(database, "INSERT INTO works (value, category) VALUES (?)", [work, &form.category]);
                 }
                 for tag in &form.tags {
-                    _ = run_sql(database, "INSERT INTO tags (value) VALUES (?)", [tag]);
+                    _ = run_sql(database, "INSERT INTO tags (value, category) VALUES (?)", [tag, &form.category]);
                 }
 
                 Response::builder()
