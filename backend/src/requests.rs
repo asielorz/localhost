@@ -677,16 +677,16 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                 _ = run_sql(database, "INSERT INTO categories (value) VALUES (?)", [&form.category]);
 
                 for author in &form.authors {
-                    _ = run_sql(database, "INSERT INTO authors (value, category) VALUES (?)", [author, &form.category]);
+                    _ = run_sql(database, "INSERT INTO authors (value, category) VALUES (?, ?)", [author, &form.category]);
                 }
                 for theme in &form.themes {
-                    _ = run_sql(database, "INSERT INTO themes (value, category) VALUES (?)", [theme, &form.category]);
+                    _ = run_sql(database, "INSERT INTO themes (value, category) VALUES (?, ?)", [theme, &form.category]);
                 }
                 for work in &form.works_mentioned {
-                    _ = run_sql(database, "INSERT INTO works (value, category) VALUES (?)", [work, &form.category]);
+                    _ = run_sql(database, "INSERT INTO works (value, category) VALUES (?, ?)", [work, &form.category]);
                 }
                 for tag in &form.tags {
-                    _ = run_sql(database, "INSERT INTO tags (value, category) VALUES (?)", [tag, &form.category]);
+                    _ = run_sql(database, "INSERT INTO tags (value, category) VALUES (?, ?)", [tag, &form.category]);
                 }
 
                 Response::builder()
