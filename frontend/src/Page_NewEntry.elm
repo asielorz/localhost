@@ -61,7 +61,7 @@ edit id =
     , Cmd.batch 
       [ initial_commands 
       , Http.get 
-        { url = "http://localhost:8080/api/texts/" ++ String.fromInt id
+        { url = "/api/texts/" ++ String.fromInt id
         , expect = Http.expectJson Msg_ReceivedEntryToEdit Entry.from_json 
         }
       ]
@@ -164,11 +164,11 @@ default_model =
 
 initial_commands : Cmd Msg
 initial_commands = Cmd.batch
-  [ Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors metadata_map_from_json }
-  , Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-  , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
-  , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
-  , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
+  [ Http.get { url = "/api/authors", expect = Http.expectJson Msg_ReceivedAuthors metadata_map_from_json }
+  , Http.get { url = "/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+  , Http.get { url = "/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
+  , Http.get { url = "/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
+  , Http.get { url = "/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
   ]
 
 type Msg 
@@ -378,7 +378,7 @@ update msg model = case msg of
       (model
       , Http.request
         { method = "DELETE"
-        , url = "http://localhost:8080/api/texts/" ++ String.fromInt edited_entry.id
+        , url = "/api/texts/" ++ String.fromInt edited_entry.id
         , headers = []
         , body = Http.emptyBody
         , expect = Http.expectWhatever Msg_ResponseToDeleteArrived
@@ -560,7 +560,7 @@ update msg model = case msg of
       then
         ( model
         , Http.get
-          { url = "http://localhost:8080/api/meta_headers/" ++ model.link
+          { url = "/api/meta_headers/" ++ model.link
           , expect = Http.expectJson Msg_ReceivedPageToAutocomplete list_of_pairs_of_strings_from_json
           }
         )
@@ -634,7 +634,7 @@ put_image_task args image id =
   case image of
     Image_File image_file -> Http.task
       { method = "PUT"
-      , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+      , url = "/api/texts/" ++ String.fromInt id ++ "/image"
       , headers = []
       , body = Http.bytesBody image_file.content_type image_file.bytes
       , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
@@ -642,7 +642,7 @@ put_image_task args image id =
       }
     Image_Url url -> Http.task
       { method = "PUT"
-      , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+      , url = "/api/texts/" ++ String.fromInt id ++ "/image"
       , headers = []
       , body = Http.jsonBody <| Json.Encode.object [ ("image_url", Json.Encode.string url) ]
       , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
@@ -652,7 +652,7 @@ put_image_task args image id =
       if args.delete_if_none
         then Http.task
           { method = "DELETE"
-          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/image"
+          , url = "/api/texts/" ++ String.fromInt id ++ "/image"
           , headers = []
           , body = Http.emptyBody
           , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
@@ -667,7 +667,7 @@ put_backup_task args backup id =
       if args.delete_if_none
         then Http.task
           { method = "DELETE"
-          , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+          , url = "/api/texts/" ++ String.fromInt id ++ "/backup"
           , headers = []
           , body = Http.emptyBody
           , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
@@ -678,7 +678,7 @@ put_backup_task args backup id =
       Nothing -> Task.succeed ()
       Just file -> Http.task
         { method = "PUT"
-        , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+        , url = "/api/texts/" ++ String.fromInt id ++ "/backup"
         , headers = []
         , body = Http.bytesBody file.content_type file.content
         , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
@@ -686,7 +686,7 @@ put_backup_task args backup id =
         }
     Automatic url -> Http.task
         { method = "PUT"
-        , url = "http://localhost:8080/api/texts/" ++ String.fromInt id ++ "/backup"
+        , url = "/api/texts/" ++ String.fromInt id ++ "/backup"
         , headers = []
         , body = Http.jsonBody <| Json.Encode.object [ ("backup_url", Json.Encode.string url) ]
         , resolver = Http.stringResolver <| resolve (\_ -> Ok ())
@@ -699,7 +699,7 @@ send_button_clicked model = case make_new_entry_form model of
     let
       task = Http.task 
         { method = "POST"
-        , url = "http://localhost:8080/api/texts"
+        , url = "/api/texts"
         , headers = []
         , body = Http.jsonBody <| NewEntry.to_json form
         , resolver = Http.stringResolver <| resolve
@@ -734,7 +734,7 @@ save_button_clicked model = case make_new_entry_form model of
             then Task.succeed ()
             else Http.task
               { method = "PUT"
-              , url = "http://localhost:8080/api/texts/" ++ String.fromInt edited_entry.id
+              , url = "/api/texts/" ++ String.fromInt edited_entry.id
               , headers = []
               , body = Http.jsonBody <| NewEntry.to_json form
               , resolver = Http.stringResolver <| resolve (\_ -> Ok ())

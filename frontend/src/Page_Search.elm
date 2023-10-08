@@ -131,11 +131,11 @@ init =
       }
 
     initial_commands = 
-      [ Http.get { url = "http://localhost:8080/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
-      , Http.get { url = "http://localhost:8080/api/authors", expect = Http.expectJson Msg_ReceivedAuthors metadata_map_from_json }
-      , Http.get { url = "http://localhost:8080/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
-      , Http.get { url = "http://localhost:8080/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
-      , Http.get { url = "http://localhost:8080/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
+      [ Http.get { url = "/api/categories", expect = Http.expectJson Msg_ReceivedCategories (Json.Decode.list Json.Decode.string) }
+      , Http.get { url = "/api/authors", expect = Http.expectJson Msg_ReceivedAuthors metadata_map_from_json }
+      , Http.get { url = "/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
+      , Http.get { url = "/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
+      , Http.get { url = "/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
       ]
   in
     (default_model, Cmd.batch initial_commands)
@@ -183,7 +183,7 @@ search_response_from_json = Json.Decode.map4 SearchResponse
 
 texts_query_command : String -> Cmd Msg
 texts_query_command query_string = Http.get 
-  { url = "http://localhost:8080/api/texts" ++ query_string
+  { url = "/api/texts" ++ query_string
   , expect = Http.expectJson Msg_ReceivedSearchResults search_response_from_json
   }
 

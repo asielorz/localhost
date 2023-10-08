@@ -355,7 +355,7 @@ pub async fn put_entry_image(req : Request<Body>) -> Result<Response<Body>, hype
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Headers", "*")
         .header("Content-Type", "application/json")
-        .body(Body::from(format!(r#"{{"link":"http://localhost:8080/api/texts/{}/image"}}"#, entry_id)))
+        .body(Body::from(format!(r#"{{"link":"/api/texts/{}/image"}}"#, entry_id)))
         .or_else(|_| internal_server_error_response())
 }
 
@@ -491,7 +491,7 @@ fn write_entry_backup_to_database(entry_id : i64, body : hyper::body::Bytes, con
         .header("Access-Control-Allow-Origin", "*")
         .header("Access-Control-Allow-Headers", "*")
         .header("Content-Type", "application/json")
-        .body(Body::from(format!(r#"{{"link":"http://localhost:8080/api/texts/{}/backup"}}"#, entry_id)))
+        .body(Body::from(format!(r#"{{"link":"/api/texts/{}/backup"}}"#, entry_id)))
         .or_else(|_| internal_server_error_response())
 }
 
@@ -694,7 +694,7 @@ pub async fn post_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Er
                     .header("Access-Control-Allow-Origin", "*")
                     .header("Access-Control-Allow-Headers", "*")
                     .header("Content-Type", "application/json")
-                    .body(Body::from(format!(r#"{{"id":{},"link":"http://localhost:8080/api/texts/{}"}}"#, last_insert_row_id, last_insert_row_id)))
+                    .body(Body::from(format!(r#"{{"id":{},"link":"/api/texts/{}"}}"#, last_insert_row_id, last_insert_row_id)))
                     .or_else(|_| internal_server_error_response())
             } else {
                 internal_server_error_response()
@@ -833,8 +833,8 @@ fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, whe
             date_saved : date::read_sql_date(&row.get::<_, String>(10)?).unwrap(),
             exceptional : row.get(11)?,
             entry_type : entry_type::from_index_and_metadata(entry_type_index, entry_type_metadata),
-            image : if row.get_ref(14)?.as_blob_or_null()?.is_some() { Some(format!("http://localhost:8080/api/texts/{}/image", id)) } else { None },
-            backup : if row.get_ref(15)?.as_blob_or_null()?.is_some() { Some(format!("http://localhost:8080/api/texts/{}/backup", id)) } else { None },
+            image : if row.get_ref(14)?.as_blob_or_null()?.is_some() { Some(format!("/api/texts/{}/image", id)) } else { None },
+            backup : if row.get_ref(15)?.as_blob_or_null()?.is_some() { Some(format!("/api/texts/{}/backup", id)) } else { None },
         });
     }
 
