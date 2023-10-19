@@ -21,6 +21,7 @@ import Fontawesome exposing (fontawesome_text)
 import Combo
 import Dict exposing (Dict)
 import Metadata exposing (metadata_map_from_json)
+import Random
 
 type ComboId
   = ComboId_Type
@@ -53,6 +54,9 @@ type alias Model =
 
   -- dialog
   , dialog_entry : Maybe Entry
+
+  -- random seed
+  , session_random_seed : (Maybe Int)
 
   -- cached
   , all_categories : List String
@@ -95,6 +99,9 @@ type Msg
   | Msg_EntrySelected Entry
   | Msg_CloseDialog
 
+  -- Browser generated a random integer for us
+  | Msg_RandomSeedCreated Int
+
 title : String
 title = "Buscar"
 
@@ -123,6 +130,8 @@ init =
 
       , dialog_entry = Nothing
 
+      , session_random_seed = Nothing
+
       , all_categories = []
       , all_authors = Dict.empty
       , all_works = Dict.empty
@@ -136,6 +145,7 @@ init =
       , Http.get { url = "/api/themes", expect = Http.expectJson Msg_ReceivedThemes metadata_map_from_json }
       , Http.get { url = "/api/works", expect = Http.expectJson Msg_ReceivedWorks metadata_map_from_json }
       , Http.get { url = "/api/tags", expect = Http.expectJson Msg_ReceivedTags metadata_map_from_json }
+      , Random.generate Msg_RandomSeedCreated <| Random.int 0 Random.maxInt
       ]
   in
     (default_model, Cmd.batch initial_commands)
@@ -172,14 +182,16 @@ type alias SearchResponse =
   , current_offset : Int
   , next_offset : Int
   , total_size : Int
+  , seed : Int
   }
 
 search_response_from_json : Json.Decode.Decoder SearchResponse
-search_response_from_json = Json.Decode.map4 SearchResponse
+search_response_from_json = Json.Decode.map5 SearchResponse
       (Json.Decode.field "entries" (Json.Decode.list Entry.from_json))
       (Json.Decode.field "current_offset" Json.Decode.int) 
       (Json.Decode.field "next_offset" Json.Decode.int) 
-      (Json.Decode.field "total_size" Json.Decode.int) 
+      (Json.Decode.field "total_size" Json.Decode.int)
+      (Json.Decode.field "seed" Json.Decode.int)
 
 texts_query_command : String -> Cmd Msg
 texts_query_command query_string = Http.get 
@@ -251,8 +263,8 @@ update msg model = case msg of
   Msg_ReceivedSearchResults response -> case response of
     Ok (search_response) -> 
       (if search_response.current_offset == 0
-        then { model | entries = search_response.entries, total_query_size = search_response.total_size }
-        else { model | entries = model.entries ++ search_response.entries }
+        then { model | entries = search_response.entries, total_query_size = search_response.total_size, session_random_seed = Just search_response.seed }
+        else { model | entries = model.entries ++ search_response.entries, session_random_seed = Just search_response.seed }
       , Cmd.none
       )
     Err _ -> (model, Cmd.none)
@@ -288,6 +300,9 @@ update msg model = case msg of
   Msg_CloseDialog ->
     ({ model | dialog_entry = Nothing }, Cmd.none)
 
+  Msg_RandomSeedCreated seed ->
+    ({ model | session_random_seed = Just seed }, Cmd.none)
+
 with_label : String -> UI.Element msg -> UI.Element msg
 with_label label element = UI.column [ UI.width UI.fill, UI.spacing 5 ]
   [ UI.text label
@@ -320,6 +335,7 @@ search_query model offset = SearchQuery.search_query
   , saved_between_until = DatePicker.date model.saved_between_until
   , exceptional = model.exceptional
   , offset = offset
+  , seed = model.session_random_seed
   }
 
 search_button: Model -> UI.Element Msg

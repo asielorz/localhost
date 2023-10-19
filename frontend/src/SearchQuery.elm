@@ -31,6 +31,7 @@ type alias QueryArgs =
   , saved_between_until : Maybe Calendar.Date
   , exceptional : Bool
   , offset : Int
+  , seed : Maybe Int
   }
 
 empty_query : QueryArgs
@@ -50,6 +51,7 @@ empty_query =
   , saved_between_until = Nothing
   , exceptional = False
   , offset = 0
+  , seed = Nothing
   }
 
 date_to_string : Calendar.Date -> String
@@ -110,6 +112,7 @@ search_query args =
       |> add_date "saved_between_until" args.saved_between_until
       |> Utils.add_if args.exceptional (Url.Builder.string "exceptional" "true")
       |> add_int "offset" args.offset
+      |> Utils.add_just (args.seed |> Maybe.map (Url.Builder.int "seed"))
   in
     Url.Builder.toQuery parameters
 
@@ -138,6 +141,7 @@ apply_changes_to_query parameter query =
       "saved_between_from" -> parse_date_from_url value |> Maybe.map (\date -> { query | saved_between_from = Just date })
       "saved_between_until" -> parse_date_from_url value |> Maybe.map (\date -> { query | saved_between_until = Just date })
       "exceptional" -> parse_bool_from_url value |> Maybe.map (\b -> { query | exceptional = b })
+      "seed" -> String.toInt value |> Maybe.map (\s -> { query | seed = Just s })
       _ -> Nothing
     _ -> Nothing
 

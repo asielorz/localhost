@@ -1,5 +1,5 @@
 module Utils exposing (
-  add_if, enumerate, at, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
+  add_if, add_just, enumerate, at, remove_at, replace_at, chunk, adjacent, has_duplicates, last,
   toupper_first, remove_all_but_n, format_seconds_as_hours_minutes_seconds, is_url,
   case_insensitive_dict_get,
   missing_to_be_a_multiple_of, 
@@ -21,6 +21,11 @@ add_if : Bool -> a -> List a -> List a
 add_if cond elem list = if cond
   then list ++ [elem]
   else list
+
+add_just : Maybe a -> List a -> List a
+add_just maybe_elem list = case maybe_elem of
+  Just elem -> list ++ [elem]
+  Nothing -> list
 
 enumerate_impl : Int -> List a -> List (Int, a)
 enumerate_impl index list = case list of

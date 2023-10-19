@@ -2,7 +2,7 @@ use crate::http;
 use crate::paths;
 use crate::date;
 use crate::state::*;
-use crate::url_to_sql_query::url_to_sql_query;
+use crate::url_to_sql_query::{url_to_sql_query, SqlQuery};
 use crate::sql_array::*;
 use crate::entry_type;
 use crate::forms::*;
@@ -10,6 +10,9 @@ use crate::html_meta::html_meta_headers;
 use crate::images::normalize_image;
 
 use hyper::{Body, Request, Response, StatusCode};
+use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use serde::Serialize;
 use std::fs;
 
@@ -78,17 +81,17 @@ fn to_json_http_response<T : Serialize>(entries : &T) -> Result<Response<Body>, 
 
 pub fn get_texts(req : Request<Body>) -> Result<Response<Body>, hyper::Error>
 {
-    let (sql_query, sql_params, offset) = match req.uri().query() {
+    let sql_query = match req.uri().query() {
         Some(query_text) => match url_to_sql_query(query_text) {
             Some(result) => result,
             None => { return internal_server_error_response(); }
         },
-        None => (String::from(""), Vec::new(), 0)
+        None => SqlQuery::default()
     };
 
     let served_entries = {
         let state = global_state().lock().unwrap();
-        match select_texts(state.database.as_ref().unwrap(), &sql_query, sql_params.iter().map(|x| x as &dyn rusqlite::ToSql).collect::<Vec<&dyn rusqlite::ToSql>>().as_slice(), offset) {
+        match select_texts(state.database.as_ref().unwrap(), &sql_query) {
             Ok(entries) => entries,
             Err(err) => {
                 println!("SQL query error: {}", err);
@@ -106,7 +109,7 @@ pub fn get_single_text(req : Request<Body>) -> Result<Response<Body>, hyper::Err
     if let Ok(entry_id) = path.parse::<i64>() {
         let served_entries = {
             let state = global_state().lock().unwrap();
-            match select_texts(state.database.as_ref().unwrap(), "entry_id = ?", [ entry_id ], 0) {
+            match select_texts(state.database.as_ref().unwrap(),  &SqlQuery::with_query_str("entry_id = ?", [ format!("{}", entry_id) ])) {
                 Ok(entries) => entries,
                 Err(err) => {
                     println!("{}", err);
@@ -797,52 +800,114 @@ struct GetTextsResponse
     current_offset : usize,
     next_offset : usize,
     total_size : usize,
+    seed : u64
 }
 
-fn select_texts<Params : rusqlite::Params>(database : &rusqlite::Connection, where_query : &str, sql_params : Params, offset : usize) -> rusqlite::Result<GetTextsResponse> {
+fn read_entry_from_database_row(row : &rusqlite::Row<'_>) -> rusqlite::Result<Entry>
+{
+    let id : i64 = row.get(0)?;
+    let entry_type_index : i32 = row.get(12)?;
+    let entry_type_metadata : i32 = row.get(13)?;
+
+    Ok(Entry{
+        id,
+        link : row.get(1)?,
+        title : row.get(2)?,
+        description : row.get(3)?,
+        authors : read_from_sql_array(&row.get::<_, String>(4)?),
+        category : row.get(5)?,
+        themes : read_from_sql_array(&row.get::<_, String>(6)?),
+        works_mentioned : read_from_sql_array(&row.get::<_, String>(7)?),
+        tags : read_from_sql_array(&row.get::<_, String>(8)?),
+        date_published : date::read_sql_date(&row.get::<_, String>(9)?).unwrap(),
+        date_saved : date::read_sql_date(&row.get::<_, String>(10)?).unwrap(),
+        exceptional : row.get(11)?,
+        entry_type : entry_type::from_index_and_metadata(entry_type_index, entry_type_metadata),
+        image : if row.get_ref(14)?.as_blob_or_null()?.is_some() { Some(format!("/api/texts/{}/image", id)) } else { None },
+        backup : if row.get_ref(15)?.as_blob_or_null()?.is_some() { Some(format!("/api/texts/{}/backup", id)) } else { None },
+    })
+}
+
+fn get_number_of_texts_in_database(database : &rusqlite::Connection) -> rusqlite::Result<usize> {
+    let sql_query ="SELECT count(*) FROM entries";
+    let mut statement = database.prepare(sql_query)?;
+    let mut rows = statement.query([])?;
+
+    if let Some(row) = rows.next()? {
+        row.get(0)
+    } else {
+        Ok(0)
+    }
+}
+
+fn select_random_texts(database : &rusqlite::Connection, offset : usize, seed : u64) -> rusqlite::Result<GetTextsResponse> {
+    let total_size : usize = get_number_of_texts_in_database(database)?;
+
+    let mut rng = SmallRng::seed_from_u64(seed);
+
+    let mut indices : Vec<usize> = (0..total_size).collect();
+    indices.shuffle(&mut rng);
+
+    let indices_to_include = &indices[offset..std::cmp::min(offset + 10, indices.len())];
+
+    let sql_query = "SELECT * FROM entries";
+    let mut statement = database.prepare(sql_query)?;
+    let mut rows = statement.query([])?;
+
     let mut found_entries : Vec<Entry> = Vec::new();
 
-    let sql_query = if where_query.is_empty() {
-        format!("SELECT *, count(*) OVER() AS full_count FROM entries LIMIT 10 OFFSET {}", offset)
-    } else {
-        format!("SELECT *, count(*) OVER() AS full_count FROM entries WHERE {} LIMIT 10 OFFSET {}", where_query, offset)
-    };
-
-    println!("SQL query: {}", sql_query);
-
-    let mut statement = database.prepare(&sql_query)?;
-    let mut rows = statement.query(sql_params)?;
-    let mut total_size : usize = 0;
+    let mut i : usize = 0;
     while let Some(row) = rows.next()? {
-        let id : i64 = row.get(0)?;
-        let entry_type_index : i32 = row.get(12)?;
-        let entry_type_metadata : i32 = row.get(13)?;
-        total_size = row.get(16)?;
+        if indices_to_include.contains(&i) {
+            found_entries.push(read_entry_from_database_row(row)?);
+        }
 
-        found_entries.push(Entry{
-            id,
-            link : row.get(1)?,
-            title : row.get(2)?,
-            description : row.get(3)?,
-            authors : read_from_sql_array(&row.get::<_, String>(4)?),
-            category : row.get(5)?,
-            themes : read_from_sql_array(&row.get::<_, String>(6)?),
-            works_mentioned : read_from_sql_array(&row.get::<_, String>(7)?),
-            tags : read_from_sql_array(&row.get::<_, String>(8)?),
-            date_published : date::read_sql_date(&row.get::<_, String>(9)?).unwrap(),
-            date_saved : date::read_sql_date(&row.get::<_, String>(10)?).unwrap(),
-            exceptional : row.get(11)?,
-            entry_type : entry_type::from_index_and_metadata(entry_type_index, entry_type_metadata),
-            image : if row.get_ref(14)?.as_blob_or_null()?.is_some() { Some(format!("/api/texts/{}/image", id)) } else { None },
-            backup : if row.get_ref(15)?.as_blob_or_null()?.is_some() { Some(format!("/api/texts/{}/backup", id)) } else { None },
-        });
+        i += 1;
     }
 
     Ok(GetTextsResponse{
         next_offset : offset + found_entries.len(),
         entries : found_entries,
         current_offset : offset,
-        total_size
+        total_size,
+        seed
+    })
+}
+
+fn select_texts(database : &rusqlite::Connection, query : &SqlQuery) -> rusqlite::Result<GetTextsResponse> {
+    let seed = query.seed.unwrap_or_else(|| rand::random::<i32>().unsigned_abs() as u64);
+
+    if query.where_query.is_empty() {
+        return select_random_texts(database, query.offset, seed);
+    }
+    
+    let mut found_entries : Vec<Entry> = Vec::new();
+
+    let sql_query = format!("SELECT *, count(*) OVER() AS full_count FROM entries WHERE {} LIMIT 10 OFFSET {}", query.where_query, query.offset);
+    let params = query.params.iter().map(|x| x as &dyn rusqlite::ToSql).collect::<Vec<&dyn rusqlite::ToSql>>();
+
+    println!("SQL query: {}", sql_query);
+
+    let mut statement = database.prepare(&sql_query)?;
+    let mut rows = statement.query(params.as_slice())?;
+    let mut total_size = 0;
+
+    // Read the size from the first row. We don't need to read it from subsequent rows because it is always the same.
+    if let Some(row) = rows.next()? {
+        found_entries.push(read_entry_from_database_row(row)?);
+        total_size = row.get(16)?;
+    }
+
+    while let Some(row) = rows.next()? {
+        found_entries.push(read_entry_from_database_row(row)?);
+    }
+
+    Ok(GetTextsResponse{
+        next_offset : query.offset + found_entries.len(),
+        entries : found_entries,
+        current_offset : query.offset,
+        total_size,
+        seed
     })
 }
 
