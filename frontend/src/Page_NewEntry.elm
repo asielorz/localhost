@@ -442,7 +442,7 @@ update msg model = case msg of
   -- Backup
 
   Msg_BackupFileButtonClicked -> 
-    (model, File.Select.file ["application/pdf","text/html"] Msg_BackupFileOpened)
+    (model, File.Select.file ["application/pdf","text/html","audio/mpeg","video/mp4"] Msg_BackupFileOpened)
 
   Msg_BackupFileOpened file ->
     (model
@@ -456,6 +456,8 @@ update msg model = case msg of
             case extension of
               Just "pdf"  -> Msg_BackupLoaded { filename = path, content_type = "application/pdf", content = bytes }
               Just "html"  -> Msg_BackupLoaded { filename = path, content_type = "text/html", content = bytes }
+              Just "mp3"  -> Msg_BackupLoaded { filename = path, content_type = "audio/mpeg", content = bytes }
+              Just "mp4"  -> Msg_BackupLoaded { filename = path, content_type = "video/mp4", content = bytes }
               _ -> Msg_Noop
         )
       |> Task.perform identity
